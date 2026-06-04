@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/* ============================================================
+   aniDB デザインシステム
+   コンセプト: オフホワイトの紙面のようなエディトリアル。
+   - 温かいオフホワイト地、明朝の見出し、ヘアライン罫。
+   - グラデーション/ガラス風/ネオン/絵文字多用などの「いかにもAI」な装飾は使わない。
+   - 余白を広く取り、活字の階層で情報を整理する。
+   ============================================================ */
+
+@theme {
+  /* ---- 色（warm neutral + 抑えた朱の差し色） ---- */
+  --color-paper: #faf7f0; /* 地: 温かいオフホワイト */
+  --color-paper-deep: #f3efe4; /* 一段沈めた地 */
+  --color-surface: #fffdf8; /* カード等の面 */
+  --color-ink: #211d18; /* 本文: 温かい黒に近い茶墨 */
+  --color-ink-soft: #4a443b;
+  --color-muted: #8c8475; /* 補足テキスト */
+  --color-line: #e3ddcf; /* ヘアライン罫 */
+  --color-line-strong: #cfc7b4;
+  --color-accent: #b4432b; /* 差し色: 抑えた朱(べんがら) */
+  --color-accent-soft: #c9714f;
+  --color-good: #4f6f52; /* 放送中などの状態色(緑青) */
+  --color-info: #3f5a73; /* 放送予定(藍) */
+
+  /* ---- フォント（next/font から供給される変数を使用） ---- */
+  --font-sans: var(--font-gothic), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  --font-serif: var(--font-mincho), "Hiragino Mincho ProN", "Yu Mincho", serif;
+
+  /* ---- 角丸は控えめに（紙片感） ---- */
+  --radius-card: 2px;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "palt" 1; /* 和文の詰め */
+  line-height: 1.8;
+}
+
+/* 見出しは明朝で品よく */
+.font-serif,
+h1.display,
+.display {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* エディトリアルの「キッカー」(小見出しラベル) */
+.kicker {
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+/* 縦書き混じりを避けたシンプルなリンク下線 */
+.link-underline {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--color-line-strong);
+}
+.link-underline:hover {
+  text-decoration-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* 罫線の入った定義リスト(スタッフ等) */
+.rule-row {
+  border-top: 1px solid var(--color-line);
+}
+
+/* 選択時のハイライト色も世界観に合わせる */
+::selection {
+  background: #ead9bf;
+  color: var(--color-ink);
+}
