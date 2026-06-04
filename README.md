@@ -34,7 +34,7 @@ npm run dev
 | データ基盤 | Supabase (PostgreSQL + 認証 + RLS) |
 | 公開 | Vercel（Cronで定期実行） |
 | 連携 | Google OAuth 2.0 / Google Calendar API |
-| データ取得 | Annict GraphQL（作品メタ）+ しょぼいカレンダー（正確な放送時刻） |
+| データ取得 | **Annict GraphQL 単体**（作品メタ＋放送日時/局/話数/サブタイトル）。しょぼいカレンダーは将来の補完用に実装を残置 |
 
 ## ディレクトリ
 

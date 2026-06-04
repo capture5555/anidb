@@ -46,8 +46,8 @@ create index if not exists idx_episodes_work on episodes(work_id);
 
 create table if not exists channels (
   id uuid primary key default gen_random_uuid(),
-  name text not null,
-  syoboi_chid integer unique
+  name text unique not null,
+  syoboi_chid integer
 );
 
 create table if not exists programs (
@@ -59,7 +59,8 @@ create table if not exists programs (
   start_at timestamptz not null,
   end_at timestamptz,
   is_rebroadcast boolean not null default false,
-  syoboi_pid integer unique,
+  annict_program_id bigint unique,  -- Annictの放送回ID（重複取り込み防止の要）
+  syoboi_pid integer unique,         -- 将来しょぼいカレンダーで補完する場合用
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

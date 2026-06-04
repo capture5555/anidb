@@ -1,21 +1,19 @@
 /**
- * 【最大リスクの早期検証スクリプト】
- * Annict と しょぼいカレンダー が自動で紐付くか（=正確な放送時刻を取得できるか）を確認する。
+ * 【データ源の事前検証スクリプト】
+ * Annict だけで「正確な放送日時・放送局・話数・サブタイトル」が取れるかを確認する。
+ * （当初はしょぼいカレンダーとの紐付けを検証していたが、Annictの programs が
+ *   startedAt/channel/episode を直接持つことが判明したため、Annict単体の網羅度を測る。）
  *
  * 使い方:
  *   1) .env.local に ANNICT_TOKEN を設定（Supabaseは不要）
  *   2) npm run verify-linking            # 今シーズン
  *      npm run verify-linking -- 2026-spring
- *
- * 出力: 作品ごとに「scPid取得→TID逆引き→放送回取得」が成功したかを表示し、
- *       最後に紐付け成功率をまとめる。ここが高ければ本番化はスムーズ。
  */
 import { fetchWorksBySeason } from "../lib/adapters/annict.ts";
-import { fetchTidByPid, fetchProgramsByTid } from "../lib/adapters/syoboi.ts";
 import { seasonOf, seasonSlug } from "../lib/season.ts";
-
-// .env.local を読む（Next.js外なので手動ロード）
 import { readFileSync } from "node:fs";
+
+// .env.local を手動ロード
 try {
   const env = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
   for (const line of env.split("\n")) {
@@ -23,14 +21,25 @@ try {
     if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
   }
 } catch {
-  /* .env.local が無くても環境変数があれば動く */
+  /* 環境変数があれば動く */
 }
 
 function pad(s: string, n: number) {
-  // 全角を2幅としてざっくり整形
   let w = 0;
   for (const ch of s) w += ch.charCodeAt(0) > 0xff ? 2 : 1;
   return s + " ".repeat(Math.max(0, n - w));
+}
+
+function toJst(iso: string): string {
+  return new Date(iso)
+    .toLocaleString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      weekday: "short",
+    });
 }
 
 async function main() {
@@ -39,76 +48,66 @@ async function main() {
     process.exit(1);
   }
 
-  const arg = process.argv[2];
-  const season = arg ?? (() => {
-    const c = seasonOf(new Date());
-    return seasonSlug(c.year, c.season);
-  })();
+  const season =
+    process.argv[2] ??
+    (() => {
+      const c = seasonOf(new Date());
+      return seasonSlug(c.year, c.season);
+    })();
 
-  console.log(`\n■ 紐付け検証: シーズン = ${season}\n`);
-  console.log("Annictから作品を取得中…");
+  console.log(`\n■ データ源検証（Annict単体）: シーズン = ${season}\n`);
   const works = await fetchWorksBySeason(season);
-  console.log(`  → ${works.length} 作品\n`);
+  console.log(`Annictから ${works.length} 作品を取得\n`);
 
-  let linked = 0;
-  let withScpid = 0;
-  let totalSubtitleCoverage = 0;
-  let counted = 0;
+  let withPrograms = 0;
+  let withImage = 0;
+  let withCast = 0;
+  let subSum = 0;
+  let subCounted = 0;
 
-  console.log(pad("作品", 28) + pad("scPid", 8) + pad("TID", 8) + pad("放送回", 8) + "直近の放送");
-  console.log("-".repeat(80));
+  console.log(pad("作品", 26) + pad("放送回", 7) + pad("画像", 5) + pad("ｻﾌﾞﾀｲﾄﾙ", 9) + "直近の放送");
+  console.log("-".repeat(82));
 
-  for (const w of works.slice(0, 25)) {
-    const scPid = w.programs.find((p) => p.scPid)?.scPid ?? null;
-    if (scPid) withScpid++;
+  for (const w of works.slice(0, 30)) {
+    const main = w.programs.filter((p) => !p.rebroadcast && p.startedAt);
+    if (main.length) withPrograms++;
+    if (w.imageUrl) withImage++;
+    if (w.casts.length) withCast++;
 
-    let tid: number | null = null;
-    let progCount = 0;
-    let nextAir = "";
-    let subtitleCov = "";
-
-    if (scPid) {
-      tid = await fetchTidByPid(scPid).catch(() => null);
-      if (tid) {
-        const programs = await fetchProgramsByTid(tid).catch(() => []);
-        progCount = programs.length;
-        if (progCount > 0) {
-          linked++;
-          const future = programs
-            .filter((p) => new Date(p.stTime).getTime() >= Date.now())
-            .sort((a, b) => a.stTime.localeCompare(b.stTime))[0];
-          const sample = future ?? programs[programs.length - 1];
-          nextAir = `${sample.stTime.slice(0, 16).replace("T", " ")} ${sample.chName ?? ""}`;
-          const withSub = programs.filter((p) => p.subTitle).length;
-          const cov = Math.round((withSub / progCount) * 100);
-          subtitleCov = `${cov}%`;
-          totalSubtitleCoverage += cov;
-          counted++;
-        }
-      }
+    let nextAir = "—";
+    if (main.length) {
+      const future = main
+        .filter((p) => new Date(p.startedAt!).getTime() >= Date.now())
+        .sort((a, b) => a.startedAt!.localeCompare(b.startedAt!))[0];
+      const s = future ?? main.sort((a, b) => a.startedAt!.localeCompare(b.startedAt!))[0];
+      nextAir = `${toJst(s.startedAt!)} ${s.channelName ?? ""}`;
+      const withSub = main.filter((p) => p.episodeTitle).length;
+      const cov = Math.round((withSub / main.length) * 100);
+      subSum += cov;
+      subCounted++;
     }
 
     console.log(
-      pad(w.title.slice(0, 13), 28) +
-        pad(scPid ? "✓" : "—", 8) +
-        pad(tid ? String(tid) : "—", 8) +
-        pad(progCount ? String(progCount) : "—", 8) +
-        (nextAir || "(紐付け失敗)") +
-        (subtitleCov ? `  [サブタイトル ${subtitleCov}]` : ""),
+      pad(w.title.slice(0, 12), 26) +
+        pad(main.length ? String(main.length) : "—", 7) +
+        pad(w.imageUrl ? "✓" : "—", 5) +
+        pad(main.length ? `${Math.round((main.filter((p) => p.episodeTitle).length / main.length) * 100)}%` : "—", 9) +
+        nextAir,
     );
   }
 
-  const sample = Math.min(works.length, 25);
-  console.log("\n" + "=".repeat(80));
-  console.log(`検証作品数            : ${sample}`);
-  console.log(`scPidあり             : ${withScpid} (${Math.round((withScpid / sample) * 100)}%)`);
-  console.log(`しょぼい紐付け成功     : ${linked} (${Math.round((linked / sample) * 100)}%)`);
-  if (counted) console.log(`サブタイトル平均カバー : ${Math.round(totalSubtitleCoverage / counted)}%`);
-  console.log("=".repeat(80));
+  const n = Math.min(works.length, 30);
+  console.log("\n" + "=".repeat(82));
+  console.log(`検証作品数              : ${n}`);
+  console.log(`放送日時あり            : ${withPrograms} (${Math.round((withPrograms / n) * 100)}%)`);
+  console.log(`キービジュアル画像あり  : ${withImage} (${Math.round((withImage / n) * 100)}%)`);
+  console.log(`キャスト情報あり        : ${withCast} (${Math.round((withCast / n) * 100)}%)`);
+  if (subCounted) console.log(`サブタイトル平均カバー  : ${Math.round(subSum / subCounted)}%`);
+  console.log("=".repeat(82));
   console.log(
-    linked / sample >= 0.7
-      ? "\n✓ 紐付け率は良好です。本番化を進めて問題ありません。"
-      : "\n△ 紐付け率がやや低めです。突合ロジックの調整 or 手動補正(syoboi_tid)の運用を検討してください。",
+    withPrograms / n >= 0.7
+      ? "\n✓ Annict単体で放送スケジュールを十分取得できます。本番化を進めてOKです。"
+      : "\n△ 放送日時の網羅がやや低め。シーズンや時期により変動します（放送開始前は未確定なことも）。",
   );
 }
 

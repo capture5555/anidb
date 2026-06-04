@@ -23,8 +23,20 @@ export interface AnnictWork {
   episodes: { annictId: number; number: number | null; numberText: string | null; title: string | null }[];
   casts: { name: string; character: string }[];
   staffs: { roleText: string; name: string }[];
-  /** Annictが把握している放送予定（紐付け用。scPid=しょぼいPID） */
-  programs: { scPid: number | null; startedAt: string | null; channelName: string | null }[];
+  /**
+   * 放送予定。Annictが startedAt(放送日時) / channel / episode(話数・サブタイトル) / rebroadcast を
+   * 直接持っているため、これだけで正確なカレンダー登録ができる（しょぼいカレンダー不要）。
+   */
+  programs: {
+    annictId: number | null;
+    scPid: number | null;
+    startedAt: string | null;
+    rebroadcast: boolean;
+    channelName: string | null;
+    episodeNumber: number | null;
+    episodeNumberText: string | null;
+    episodeTitle: string | null;
+  }[];
 }
 
 const WORKS_BY_SEASON = /* GraphQL */ `
@@ -46,7 +58,15 @@ const WORKS_BY_SEASON = /* GraphQL */ `
         }
         casts(first: 100) { nodes { name character { name } } }
         staffs(first: 100) { nodes { roleText name } }
-        programs(first: 100) { nodes { scPid startedAt channel { name } } }
+        programs(first: 200) {
+          nodes {
+            annictId
+            scPid
+            startedAt
+            rebroadcast
+            channel { name }
+          }
+        }
       }
     }
   }
@@ -78,7 +98,7 @@ export async function fetchWorksBySeason(seasonSlug: string): Promise<AnnictWork
     const data: any = await gql(WORKS_BY_SEASON, { season: seasonSlug, after });
     const conn = data.searchWorks;
     for (const n of conn.nodes) {
-      works.push({
+      const work: AnnictWork = {
         annictId: n.annictId,
         title: n.title,
         titleKana: n.titleKana || null,
@@ -104,16 +124,59 @@ export async function fetchWorksBySeason(seasonSlug: string): Promise<AnnictWork
           name: s.name,
         })),
         programs: (n.programs?.nodes ?? []).map((p: any) => ({
+          annictId: p.annictId ?? null,
           scPid: p.scPid ?? null,
           startedAt: p.startedAt ?? null,
+          rebroadcast: Boolean(p.rebroadcast),
           channelName: p.channel?.name ?? null,
+          // episode は Program に直接ぶら下げると null 非許容違反でクエリが落ちるため、
+          // 取得後に linkProgramsToEpisodes で対応付ける。
+          episodeNumber: null,
+          episodeNumberText: null,
+          episodeTitle: null,
         })),
-      });
+      };
+      linkProgramsToEpisodes(work);
+      works.push(work);
     }
     if (!conn.pageInfo.hasNextPage) break;
     after = conn.pageInfo.endCursor;
   }
   return works;
+}
+
+/**
+ * 放送回(program)に話数・サブタイトルを対応付ける。
+ * Annictの Program.episode は直接取得できない（null非許容違反）ため、
+ * 「チャンネルごとに本放送を時系列順に並べ、エピソード一覧(sort順)へ順番に割り当てる」ことで推定する。
+ * 週1放送・複数局放送・同日一挙放送のいずれにも対応できる素直な方式。
+ */
+function linkProgramsToEpisodes(work: AnnictWork): void {
+  const epList = work.episodes
+    .filter((e) => e.number != null)
+    .slice()
+    .sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+  if (epList.length === 0) return;
+
+  const byChannel = new Map<string, AnnictWork["programs"]>();
+  for (const p of work.programs) {
+    if (p.rebroadcast || !p.startedAt) continue;
+    const key = p.channelName ?? "_";
+    if (!byChannel.has(key)) byChannel.set(key, []);
+    byChannel.get(key)!.push(p);
+  }
+
+  for (const group of byChannel.values()) {
+    group.sort((a, b) => (a.startedAt ?? "").localeCompare(b.startedAt ?? ""));
+    group.forEach((p, i) => {
+      const ep = epList[i];
+      if (ep) {
+        p.episodeNumber = ep.number;
+        p.episodeNumberText = ep.numberText;
+        p.episodeTitle = ep.title;
+      }
+    });
+  }
 }
 
 /** Annictのシーズン名(SPRING) → 小文字(spring) */

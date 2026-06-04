@@ -44,9 +44,11 @@ STEP 8  公開(Vercel)    … ネットに上げ、自動更新をON
 ## STEP 2. Annict（作品情報の取得元）
 
 1. https://annict.com にアクセス → アカウント作成（GitHub/Twitter等でログイン可）。
-2. ログイン後、https://annict.com/settings/tokens を開く。
-3. 「新しいトークンを作成」→ 説明欄に `anidb` 等 → 権限は `read` でOK → 作成。
+2. ログイン後、**https://annict.com/settings/apps** を開く（※`/settings/tokens` ではない。左メニュー「設定 → アプリ」）。
+3. 「個人用アクセストークン（Personal Access Token）」のセクションで、説明欄に `anidb` 等 → 権限は `read` でOK → 作成。
 4. 表示されたトークン文字列を控える（再表示できないことがあるので必ずコピー）。
+
+> 参考: https://developers.annict.com/docs/authentication/personal-access-token
 
 > 📌 もらう鍵: `ANNICT_TOKEN`
 

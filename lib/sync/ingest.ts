@@ -4,7 +4,6 @@ import {
   normalizeSeasonName,
   type AnnictWork,
 } from "@/lib/adapters/annict";
-import { fetchProgramsByTid, fetchTidByPid, type SyoboiProgram } from "@/lib/adapters/syoboi";
 import type { WorkStatus } from "@/lib/types";
 
 export interface IngestResult {
@@ -22,14 +21,15 @@ function computeStatus(programDates: string[]): WorkStatus {
   const first = times[0];
   const last = times[times.length - 1];
   if (now < first) return "upcoming";
-  // 最終話放送+1日経過で終了扱い
-  if (now > last + 86400000) return "finished";
+  if (now > last + 86400000) return "finished"; // 最終話+1日で終了扱い
   return "airing";
 }
 
 /**
- * シーズン取り込み。Annictの作品メタ + しょぼいの放送時刻を統合してDBへ。
- * docs/08 の ingest ジョブに相当。
+ * シーズン取り込み（docs/08 ingestジョブ）。
+ * Annict単体で 作品メタ + 放送スケジュール(日時/局/話数/サブタイトル) を取得しDBへ。
+ * ※ Annict.programs が放送情報を直接持つため、しょぼいカレンダーとの紐付けは不要になった。
+ *   （サブタイトルの欠けを将来しょぼいで補完したい場合は lib/adapters/syoboi.ts を利用可能）
  */
 export async function ingestSeason(seasonSlug: string): Promise<IngestResult> {
   const db = getAdminClient();
@@ -60,28 +60,20 @@ export async function ingestSeason(seasonSlug: string): Promise<IngestResult> {
   return result;
 }
 
-async function ingestWork(db: ReturnType<typeof getAdminClient>, aw: AnnictWork, result: IngestResult) {
-  // 1) しょぼいTIDを特定（AnnictのscPid → PID→TID逆引き）
-  let syoboiTid: number | null = null;
-  const scPid = aw.programs.find((p) => p.scPid)?.scPid ?? null;
-  if (scPid) syoboiTid = await fetchTidByPid(scPid).catch(() => null);
+async function ingestWork(
+  db: ReturnType<typeof getAdminClient>,
+  aw: AnnictWork,
+  result: IngestResult,
+) {
+  const mainPrograms = aw.programs.filter((p) => p.startedAt);
+  const status = computeStatus(mainPrograms.filter((p) => !p.rebroadcast).map((p) => p.startedAt!));
 
-  // 2) しょぼいから正確な放送回を取得
-  let syoboiPrograms: SyoboiProgram[] = [];
-  if (syoboiTid) {
-    syoboiPrograms = await fetchProgramsByTid(syoboiTid).catch(() => []);
-  }
-
-  const programDates = syoboiPrograms.map((p) => p.stTime);
-  const status = computeStatus(programDates);
-
-  // 3) works upsert（annict_id を一意キーに）
+  // 1) works upsert（annict_id を一意キーに）
   const { data: workRow, error: workErr } = await db
     .from("works")
     .upsert(
       {
         annict_id: aw.annictId,
-        syoboi_tid: syoboiTid,
         title: aw.title,
         title_kana: aw.titleKana,
         title_en: aw.titleEn,
@@ -101,7 +93,7 @@ async function ingestWork(db: ReturnType<typeof getAdminClient>, aw: AnnictWork,
   if (workErr || !workRow) throw workErr ?? new Error("work upsert failed");
   const workId = workRow.id;
 
-  // 4) episodes upsert（サブタイトルは Annict を初期値に）
+  // 2) episodes upsert
   const episodeIdByNumber = new Map<number, string>();
   for (const ep of aw.episodes) {
     if (ep.number == null) continue;
@@ -127,7 +119,7 @@ async function ingestWork(db: ReturnType<typeof getAdminClient>, aw: AnnictWork,
     }
   }
 
-  // 5) キャスト・スタッフ（洗い替え）
+  // 3) キャスト・スタッフ（洗い替え）
   await db.from("work_casts").delete().eq("work_id", workId);
   if (aw.casts.length) {
     await db.from("work_casts").insert(
@@ -151,43 +143,35 @@ async function ingestWork(db: ReturnType<typeof getAdminClient>, aw: AnnictWork,
     );
   }
 
-  // 6) しょぼいの放送回 → channels / programs / サブタイトルのマージ
-  for (const sp of syoboiPrograms) {
-    // channel upsert
-    const { data: chRow } = await db
-      .from("channels")
-      .upsert({ name: sp.chName ?? `ch${sp.chId}`, syoboi_chid: sp.chId }, { onConflict: "syoboi_chid" })
-      .select("id")
-      .single();
-    const channelId = chRow?.id ?? null;
-
-    // 対応する episode（話数一致）
-    const episodeId = sp.count != null ? episodeIdByNumber.get(sp.count) ?? null : null;
-
-    // サブタイトルのマージ: Annict側が無く、しょぼいに有ればしょぼいを採用（docs/04）
-    if (episodeId && sp.subTitle) {
-      const { data: epCur } = await db.from("episodes").select("title").eq("id", episodeId).single();
-      if (epCur && !epCur.title) {
-        await db
-          .from("episodes")
-          .update({ title: sp.subTitle, title_source: "syoboi" })
-          .eq("id", episodeId);
-      }
+  // 4) channels / programs（Annictの放送回を直接登録。話数→episode_id を対応付け）
+  const channelIdByName = new Map<string, string>();
+  for (const p of mainPrograms) {
+    if (!p.channelName) continue;
+    if (!channelIdByName.has(p.channelName)) {
+      const { data: chRow } = await db
+        .from("channels")
+        .upsert({ name: p.channelName }, { onConflict: "name" })
+        .select("id")
+        .single();
+      if (chRow) channelIdByName.set(p.channelName, chRow.id);
     }
+  }
 
-    // programs upsert（syoboi_pid を一意キーに = 重複取り込み防止）
+  for (const p of mainPrograms) {
+    const episodeId = p.episodeNumber != null ? episodeIdByNumber.get(p.episodeNumber) ?? null : null;
+    const startMs = new Date(p.startedAt!).getTime();
     await db.from("programs").upsert(
       {
         work_id: workId,
         episode_id: episodeId,
-        channel_id: channelId,
-        count: sp.count,
-        start_at: sp.stTime,
-        end_at: sp.edTime,
-        is_rebroadcast: false,
-        syoboi_pid: sp.pid,
+        channel_id: p.channelName ? channelIdByName.get(p.channelName) ?? null : null,
+        count: p.episodeNumber,
+        start_at: p.startedAt,
+        end_at: new Date(startMs + 30 * 60000).toISOString(), // 既定30分枠
+        is_rebroadcast: p.rebroadcast,
+        annict_program_id: p.annictId,
       },
-      { onConflict: "syoboi_pid" },
+      { onConflict: "annict_program_id" },
     );
     result.programs++;
   }
