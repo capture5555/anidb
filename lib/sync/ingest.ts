@@ -4,7 +4,11 @@ import {
   normalizeSeasonName,
   type AnnictWork,
 } from "@/lib/adapters/annict";
+import { fetchSubtitlesByTitle } from "@/lib/adapters/syoboi";
 import type { WorkStatus } from "@/lib/types";
+
+/** Annictにサブタイトルが無い作品を、しょぼいカレンダーで補完するか */
+const SYOBOI_BACKFILL = (process.env.SYOBOI_BACKFILL ?? "true") !== "false";
 
 export interface IngestResult {
   works: number;
@@ -93,8 +97,9 @@ async function ingestWork(
   if (workErr || !workRow) throw workErr ?? new Error("work upsert failed");
   const workId = workRow.id;
 
-  // 2) episodes upsert
+  // 2) episodes upsert（サブタイトルは Annict を初期値に）
   const episodeIdByNumber = new Map<number, string>();
+  const missingSubtitle: number[] = []; // Annictにサブタイトルが無い話数
   for (const ep of aw.episodes) {
     if (ep.number == null) continue;
     const { data: epRow } = await db
@@ -115,7 +120,27 @@ async function ingestWork(
       .single();
     if (epRow) {
       episodeIdByNumber.set(ep.number, epRow.id);
+      if (!ep.title) missingSubtitle.push(ep.number);
       result.episodes++;
+    }
+  }
+
+  // 2-b) Annictにサブタイトルが無い回を、しょぼいカレンダーで補完（docs/04 マージルール）
+  if (SYOBOI_BACKFILL && missingSubtitle.length > 0) {
+    try {
+      const subs = await fetchSubtitlesByTitle(aw.title, aw.seasonYear);
+      for (const num of missingSubtitle) {
+        const sub = subs.get(num);
+        const epId = episodeIdByNumber.get(num);
+        if (sub && epId) {
+          await db
+            .from("episodes")
+            .update({ title: sub, title_source: "syoboi" })
+            .eq("id", epId);
+        }
+      }
+    } catch (e) {
+      console.error(`[ingest] syoboi backfill failed for ${aw.title}`, e);
     }
   }
 
