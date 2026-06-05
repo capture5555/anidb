@@ -1,7 +1,9 @@
 /**
- * 既存の works に AniList の縦ポスター画像を補完する（key_visual_url を更新）。
- * 全取り込みをやり直さずにサムネイルだけ差し替えたいとき用。
- *   npm run enrich-posters
+ * 既存の works に AniList の縦ポスター画像を補完する（poster_url を更新）。
+ *   npm run enrich-posters             # ポスター未設定の作品のみ
+ *   npm run enrich-posters -- 2026     # 2026年の作品に限定
+ *   npm run enrich-posters -- 2026 force  # 2026年を強制再取得（誤ポスターの貼り直し）
+ *   npm run enrich-posters -- force    # 全作品を強制再取得
  */
 import { readFileSync } from "node:fs";
 const env = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
@@ -16,16 +18,27 @@ import { getAdminClient } from "../lib/supabase/admin.ts";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
-  const db = getAdminClient();
-  const { data: works, error } = await db
-    .from("works")
-    .select("id, title, season_year, poster_url")
-    .order("title");
-  if (error) throw error;
+  const args = process.argv.slice(2);
+  const force = args.includes("force");
+  const year = args.find((a) => /^\d{4}$/.test(a));
 
-  // 既にポスター済みの作品はスキップ（再実行で続きから）
-  const todo = works!.filter((w) => !w.poster_url);
-  console.log(`対象 ${todo.length} / 全 ${works!.length} 作品（済みはスキップ）\n`);
+  const db = getAdminClient();
+  let q = db.from("works").select("id, title, season_year, poster_url").order("title");
+  if (year) q = q.eq("season_year", Number(year));
+  // Supabaseの1000件上限を超えるため範囲取得
+  let works: any[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await q.range(from, from + 999);
+    if (error) throw error;
+    works.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+
+  // force時は全件、通常はポスター未設定のみ
+  const todo = force ? works : works.filter((w) => !w.poster_url);
+  console.log(
+    `対象 ${todo.length} / ${year ?? "全"} ${works.length} 作品${force ? "（強制再取得）" : "（未設定のみ）"}\n`,
+  );
 
   let ok = 0;
   for (const w of todo) {

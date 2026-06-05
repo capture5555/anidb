@@ -35,16 +35,28 @@ interface AniMedia {
 const titlesOf = (m: AniMedia) =>
   [m.title.native, m.title.romaji, m.title.english].filter(Boolean) as string[];
 
-/** 続編・サブタイトルの接尾辞を除いた「コアタイトル」を作る（検索ヒット率向上用） */
+/** 続編・サブタイトルの接尾辞を除いた「コアタイトル」を作る（検索ヒット率向上用）
+ *  ※「Re:ゼロ」等の作品名内コロンを切らないよう、コロンでは分割しない。 */
 function coreTitle(title: string): string {
   return title
-    .replace(/\s*(?:1st|2nd|3rd|4th|5th|\d+(?:st|nd|rd|th))\s*season.*$/i, "")
+    .replace(/\s*(?:1st|2nd|3rd|4th|5th|6th|7th|\d+(?:st|nd|rd|th))\s*season.*$/i, "")
     .replace(/\s*season\s*\d+.*$/i, "")
     .replace(/\s*第[0-9０-９]+期.*$/, "")
-    .replace(/\s+(?:II|III|IV)\b.*$/i, "")
-    .replace(/[ 　:：].*$/, "") // 最初の空白/コロン以降（サブタイトル）を落とす
-    .replace(/\s*[0-9０-９]+\s*$/, "") // 末尾の数字（2期の「2」等）
+    .replace(/\s*(?:Part|パート)\s*[0-9０-９]+.*$/i, "")
+    .replace(/\s+(?:II|III|IV|V|VI|VII)\b.*$/i, "")
+    .replace(/[ 　].*$/, "") // 最初の空白以降（版数/サブタイトル）を落とす。コロンは保持。
     .trim();
+}
+
+/** 候補タイトルが検索語と「十分強く」一致するか。短い断片での誤マッチを防ぐ。 */
+function strongMatch(candidate: string, nq: string, nt: string): boolean {
+  const ntt = norm(candidate);
+  if (!ntt) return false;
+  if (ntt === nt || ntt === nq) return true; // 完全一致
+  const MIN = 5; // 含有判定は5文字以上の側でのみ許可
+  if (nq.length >= MIN && ntt.includes(nq)) return true;
+  if (ntt.length >= MIN && nq.includes(ntt)) return true;
+  return false;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -82,34 +94,21 @@ export async function fetchPosterUrl(title: string, year?: number | null): Promi
   const core = coreTitle(title);
   const queries = core && norm(core) !== norm(title) ? [title, core] : [title];
 
+  const nt = norm(title);
   for (const q of queries) {
     const media = await searchMedia(q);
     if (media.length === 0) continue;
     const nq = norm(q);
-    const nt = norm(title);
 
-    // 1) いずれかの表記が完全一致
-    let hit = media.find((m) => titlesOf(m).some((t) => norm(t) === nt || norm(t) === nq));
-    // 2) 年一致 ＋ 部分一致
-    if (!hit && year) {
-      hit = media.find(
-        (m) =>
-          m.seasonYear === year &&
-          titlesOf(m).some((t) => {
-            const ntt = norm(t);
-            return ntt.includes(nq) || nq.includes(ntt);
-          }),
-      );
-    }
-    // 3) 部分一致（検索語と作品名のどちらか方向）
-    if (!hit) {
-      hit = media.find((m) =>
-        titlesOf(m).some((t) => {
-          const ntt = norm(t);
-          return ntt.includes(nq) || nq.includes(ntt);
-        }),
-      );
-    }
+    // 「十分強く」一致する候補のみを採用。
+    const matches = media.filter((m) => titlesOf(m).some((t) => strongMatch(t, nq, nt)));
+    if (matches.length === 0) continue;
+
+    // 完全一致 > 年一致 > 先頭（SEARCH_MATCH順）の優先で選ぶ。
+    const exact = matches.find((m) => titlesOf(m).some((t) => norm(t) === nt || norm(t) === nq));
+    const byYear = year ? matches.find((m) => m.seasonYear === year) : undefined;
+    const hit = exact ?? byYear ?? matches[0];
+
     const url = hit?.coverImage.extraLarge ?? hit?.coverImage.large ?? null;
     if (url) return url;
   }
