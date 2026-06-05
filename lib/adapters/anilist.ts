@@ -10,8 +10,11 @@ const QUERY = /* GraphQL */ `
   query ($search: String) {
     Page(perPage: 8) {
       media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+        idMal
         title { native romaji english }
         seasonYear
+        averageScore
+        popularity
         coverImage { extraLarge large }
       }
     }
@@ -27,9 +30,19 @@ function norm(s: string): string {
 }
 
 interface AniMedia {
+  idMal: number | null;
   title: { native: string | null; romaji: string | null; english: string | null };
   seasonYear: number | null;
+  averageScore: number | null; // 0-100
+  popularity: number | null; // 登録者数
   coverImage: { extraLarge: string | null; large: string | null };
+}
+
+export interface AniListInfo {
+  posterUrl: string | null;
+  score: number | null; // 0-100（海外平均）
+  popularity: number | null; // 海外登録者数
+  malId: number | null;
 }
 
 const titlesOf = (m: AniMedia) =>
@@ -90,27 +103,36 @@ async function searchMedia(search: string): Promise<AniMedia[]> {
  * フルタイトルで検索 → 当たらなければ続編接尾辞を除いたコアタイトルで再検索。
  * 誤マッチを避けるため、正規化一致 or 部分一致（検索語/作品名のどちらか方向）した場合のみ採用。
  */
-export async function fetchPosterUrl(title: string, year?: number | null): Promise<string | null> {
+/** タイトル（＋年）から最も確からしいAniList作品を1件返す。誤マッチ防止の厳格判定つき。 */
+async function matchMedia(title: string, year?: number | null): Promise<AniMedia | null> {
   const core = coreTitle(title);
   const queries = core && norm(core) !== norm(title) ? [title, core] : [title];
-
   const nt = norm(title);
   for (const q of queries) {
     const media = await searchMedia(q);
     if (media.length === 0) continue;
     const nq = norm(q);
-
-    // 「十分強く」一致する候補のみを採用。
     const matches = media.filter((m) => titlesOf(m).some((t) => strongMatch(t, nq, nt)));
     if (matches.length === 0) continue;
-
-    // 完全一致 > 年一致 > 先頭（SEARCH_MATCH順）の優先で選ぶ。
     const exact = matches.find((m) => titlesOf(m).some((t) => norm(t) === nt || norm(t) === nq));
     const byYear = year ? matches.find((m) => m.seasonYear === year) : undefined;
-    const hit = exact ?? byYear ?? matches[0];
-
-    const url = hit?.coverImage.extraLarge ?? hit?.coverImage.large ?? null;
-    if (url) return url;
+    return exact ?? byYear ?? matches[0];
   }
   return null;
+}
+
+export async function fetchPosterUrl(title: string, year?: number | null): Promise<string | null> {
+  const m = await matchMedia(title, year);
+  return m?.coverImage.extraLarge ?? m?.coverImage.large ?? null;
+}
+
+/** タイトル（＋年）から AniList のスコア・登録者数・MAL ID を取得 */
+export async function fetchAniListInfo(title: string, year?: number | null): Promise<AniListInfo> {
+  const m = await matchMedia(title, year);
+  return {
+    posterUrl: m?.coverImage.extraLarge ?? m?.coverImage.large ?? null,
+    score: m?.averageScore ?? null,
+    popularity: m?.popularity ?? null,
+    malId: m?.idMal ?? null,
+  };
 }

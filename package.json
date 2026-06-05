@@ -11,7 +11,8 @@
     "ingest": "node --experimental-strip-types scripts/ingest.ts",
     "verify-linking": "node --experimental-strip-types scripts/verify-linking.ts",
     "enrich-posters": "node --experimental-strip-types scripts/enrich-posters.ts",
-    "enrich-popularity": "node --experimental-strip-types scripts/enrich-popularity.ts"
+    "enrich-popularity": "node --experimental-strip-types scripts/enrich-popularity.ts",
+    "enrich-scores": "node --experimental-strip-types scripts/enrich-scores.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

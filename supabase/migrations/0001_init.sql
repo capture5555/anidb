@@ -23,6 +23,12 @@ create table if not exists works (
   key_visual_url text,
   poster_url text,                         -- 縦ポスター（AniList。ingestは触らない）
   popularity integer not null default 0,  -- 人気指標（Annictウォッチャー数）
+  anilist_score integer,                   -- AniList平均スコア(0-100, 海外)
+  anilist_popularity integer,              -- AniList登録者数(海外)
+  mal_id integer,
+  mal_score numeric(4,2),                  -- MALスコア(0-10)
+  mal_scored_by integer,
+  mal_members integer,
   company_id uuid,
   source_updated_at timestamptz,
   created_at timestamptz not null default now(),

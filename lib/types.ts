@@ -79,6 +79,12 @@ export interface WorkDetail extends WorkSummary {
   casts: CastEntry[];
   staff: StaffEntry[];
   programs: Program[];
+  // 評価（海外/MAL）。未取得は null。
+  anilistScore: number | null; // 0-100
+  anilistPopularity: number | null;
+  malScore: number | null; // 0-10
+  malScoredBy: number | null;
+  malMembers: number | null;
 }
 
 // --- ユーザー/連携系 ---

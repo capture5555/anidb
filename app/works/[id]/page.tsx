@@ -167,9 +167,44 @@ export default async function WorkDetailPage({
           )}
         </div>
 
-        {/* サイド: 放送情報 */}
-        <aside className="lg:pt-1">
-          <div className="border border-line rounded-[var(--radius-card)] bg-surface p-5 lg:sticky lg:top-24">
+        {/* サイド: 評価 + 放送情報 */}
+        <aside className="lg:pt-1 space-y-5 lg:sticky lg:top-24">
+          {(work.popularity > 0 || work.anilistScore != null || work.malScore != null) && (
+            <div className="border border-line rounded-[var(--radius-card)] bg-surface p-5">
+              <p className="kicker">評価・人気 / Ratings</p>
+              <dl className="mt-3 space-y-3">
+                {work.popularity > 0 && (
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-xs text-muted">国内人気<span className="text-[0.65rem]">（Annict）</span></dt>
+                    <dd className="text-ink tabular-nums">
+                      <span className="display text-lg">{work.popularity.toLocaleString()}</span>
+                      <span className="text-xs text-muted"> 人</span>
+                    </dd>
+                  </div>
+                )}
+                {work.anilistScore != null && (
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-xs text-muted">海外スコア<span className="text-[0.65rem]">（AniList）</span></dt>
+                    <dd className="text-ink tabular-nums">
+                      <span className="display text-lg">{work.anilistScore}</span>
+                      <span className="text-xs text-muted"> / 100</span>
+                    </dd>
+                  </div>
+                )}
+                {work.malScore != null && (
+                  <div className="flex items-baseline justify-between">
+                    <dt className="text-xs text-muted">MAL<span className="text-[0.65rem]">（{work.malScoredBy ? `${work.malScoredBy.toLocaleString()}件` : "世界"}）</span></dt>
+                    <dd className="text-ink tabular-nums">
+                      <span className="display text-lg">{work.malScore.toFixed(2)}</span>
+                      <span className="text-xs text-muted"> / 10</span>
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
+
+          <div className="border border-line rounded-[var(--radius-card)] bg-surface p-5">
             <p className="kicker">放送情報 / On air</p>
             <dl className="mt-3 space-y-3 text-sm">
               {firstProgram?.channelName && (

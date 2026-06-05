@@ -385,6 +385,11 @@ function buildWork(spec: WorkSpec): WorkDetail {
     status: spec.status,
     media: spec.media,
     popularity: 1000 - hashId(spec.id), // デモ用の擬似人気度
+    anilistScore: 70 + (hashId(spec.id) % 25),
+    anilistPopularity: null,
+    malScore: Number((7 + (hashId(spec.id) % 25) / 10).toFixed(2)),
+    malScoredBy: null,
+    malMembers: null,
     genres: spec.genres,
     synopsis: spec.synopsis,
     officialSiteUrl: spec.officialSiteUrl ?? null,
