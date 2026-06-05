@@ -1,5 +1,6 @@
 import { encryptToken, decryptToken } from "./crypto";
 import { refreshAccessToken, GOOGLE_SCOPES, type GoogleUserInfo } from "./google/oauth";
+import { googleSubToUserId } from "./userId";
 import type { SessionData } from "./session";
 
 function supabaseEnabled(): boolean {
@@ -15,22 +16,26 @@ export async function saveGoogleAccount(
   user: GoogleUserInfo,
   refreshToken: string | undefined,
 ): Promise<{ userId: string; storeInSession: boolean }> {
+  // Googleの sub から決定的なUUIDを生成（DBのuuid型カラムに合わせる）
+  const userId = googleSubToUserId(user.sub);
+
   if (!supabaseEnabled()) {
     // デモ: セッションに保持
-    return { userId: user.sub, storeInSession: true };
+    return { userId, storeInSession: true };
   }
 
   const { getAdminClient } = await import("./supabase/admin");
   const db = getAdminClient();
 
-  // app_users（id=Google sub を流用）
-  await db.from("app_users").upsert(
-    { id: user.sub, email: user.email, display_name: user.name ?? null },
+  // app_users
+  const { error: userErr } = await db.from("app_users").upsert(
+    { id: userId, email: user.email, display_name: user.name ?? null },
     { onConflict: "id" },
   );
+  if (userErr) console.error("[saveGoogleAccount] app_users upsert", userErr);
 
   const update: Record<string, unknown> = {
-    user_id: user.sub,
+    user_id: userId,
     google_sub: user.sub,
     scopes: GOOGLE_SCOPES,
     token_updated_at: new Date().toISOString(),
@@ -38,9 +43,12 @@ export async function saveGoogleAccount(
   // refresh_token は再同意時のみ返るため、得られた時だけ更新（既存を消さない）
   if (refreshToken) update.refresh_token_encrypted = encryptToken(refreshToken);
 
-  await db.from("google_accounts").upsert(update, { onConflict: "google_sub" });
+  const { error: gaErr } = await db
+    .from("google_accounts")
+    .upsert(update, { onConflict: "google_sub" });
+  if (gaErr) console.error("[saveGoogleAccount] google_accounts upsert", gaErr);
 
-  return { userId: user.sub, storeInSession: false };
+  return { userId, storeInSession: false };
 }
 
 /** セッションのユーザーについて、有効なアクセストークンを取得する */

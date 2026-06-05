@@ -20,6 +20,7 @@ export interface AnnictWork {
   synopsis: string | null;
   imageUrl: string | null;
   media: string | null;
+  watchersCount: number; // 人気指標（ウォッチャー数）
   episodes: { annictId: number; number: number | null; numberText: string | null; title: string | null }[];
   casts: { name: string; character: string }[];
   staffs: { roleText: string; name: string }[];
@@ -52,6 +53,7 @@ const WORKS_BY_SEASON = /* GraphQL */ `
         seasonName
         officialSiteUrl
         media
+        watchersCount
         image { recommendedImageUrl facebookOgImageUrl }
         episodes(first: 100, orderBy: { field: SORT_NUMBER, direction: ASC }) {
           nodes { annictId number numberText title }
@@ -109,6 +111,7 @@ export async function fetchWorksBySeason(seasonSlug: string): Promise<AnnictWork
         synopsis: null, // Annictはあらすじを直接持たないため別途補完（公式/Wikipedia等）
         imageUrl: n.image?.recommendedImageUrl || n.image?.facebookOgImageUrl || null,
         media: n.media ? String(n.media).toLowerCase() : null,
+        watchersCount: n.watchersCount ?? 0,
         episodes: (n.episodes?.nodes ?? []).map((e: any) => ({
           annictId: e.annictId,
           number: e.number ?? null,

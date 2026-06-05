@@ -47,7 +47,11 @@ export class SupabaseDataProvider implements DataProvider {
     const perPage = query.perPage ?? 24;
     const page = query.page ?? 1;
     const from = (page - 1) * perPage;
-    q = q.range(from, from + perPage - 1).order("title_kana", { ascending: true });
+    // 人気順（Annictウォッチャー数の降順）。同数はタイトル読みで安定化。
+    q = q
+      .range(from, from + perPage - 1)
+      .order("popularity", { ascending: false })
+      .order("title_kana", { ascending: true });
 
     const { data, error, count } = await q;
     if (error) throw error;

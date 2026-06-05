@@ -5,7 +5,11 @@ import {
   type AnnictWork,
 } from "@/lib/adapters/annict";
 import { fetchSubtitlesByTitle } from "@/lib/adapters/syoboi";
+import { fetchPosterUrl } from "@/lib/adapters/anilist";
 import type { WorkStatus } from "@/lib/types";
+
+/** 縦ポスター画像を AniList から補完するか（既定オフ。レート制限のため通常は enrich-posters を別途実行） */
+const POSTER_ENRICH = process.env.POSTER_ENRICH === "true";
 
 /** Annictにサブタイトルが無い作品を、しょぼいカレンダーで補完するか */
 const SYOBOI_BACKFILL = (process.env.SYOBOI_BACKFILL ?? "true") !== "false";
@@ -72,6 +76,13 @@ async function ingestWork(
   const mainPrograms = aw.programs.filter((p) => p.startedAt);
   const status = computeStatus(mainPrograms.filter((p) => !p.rebroadcast).map((p) => p.startedAt!));
 
+  // キービジュアルは縦ポスター優先（AniList）→ 無ければAnnictの画像
+  let keyVisualUrl = aw.imageUrl;
+  if (POSTER_ENRICH) {
+    const poster = await fetchPosterUrl(aw.title, aw.seasonYear).catch(() => null);
+    if (poster) keyVisualUrl = poster;
+  }
+
   // 1) works upsert（annict_id を一意キーに）
   const { data: workRow, error: workErr } = await db
     .from("works")
@@ -87,7 +98,8 @@ async function ingestWork(
         season_year: aw.seasonYear,
         season_name: normalizeSeasonName(aw.seasonName),
         status,
-        key_visual_url: aw.imageUrl,
+        key_visual_url: keyVisualUrl,
+        popularity: aw.watchersCount,
         source_updated_at: new Date().toISOString(),
       },
       { onConflict: "annict_id" },
