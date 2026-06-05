@@ -18,6 +18,9 @@ export function SiteHeader() {
             <Link href="/schedule" className="hover:text-accent transition-colors">
               番組表
             </Link>
+            <Link href="/analytics" className="hover:text-accent transition-colors hidden sm:inline">
+              分析
+            </Link>
             <Link href="/me" className="hover:text-accent transition-colors">
               マイ登録
             </Link>

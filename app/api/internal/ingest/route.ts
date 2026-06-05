@@ -18,10 +18,19 @@ async function run(req: NextRequest) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  // 対象シーズン: 指定が無ければ「今シーズン + 来シーズン」
   const sp = req.nextUrl.searchParams;
+  const metaOnly = sp.get("meta") === "1";
+
+  // 対象シーズンの決定
   let seasons: string[];
-  if (sp.get("season")) {
+  if (sp.get("fromYear") && sp.get("toYear")) {
+    // 過去データの範囲取り込み（分析用・metaOnly想定）
+    const from = Number(sp.get("fromYear"));
+    const to = Number(sp.get("toYear"));
+    const names = ["winter", "spring", "summer", "autumn"];
+    seasons = [];
+    for (let y = from; y <= to; y++) for (const n of names) seasons.push(`${y}-${n}`);
+  } else if (sp.get("season")) {
     seasons = [sp.get("season")!];
   } else {
     const now = new Date();
@@ -33,9 +42,9 @@ async function run(req: NextRequest) {
   try {
     const results = [];
     for (const s of seasons) {
-      results.push({ season: s, ...(await ingestSeason(s)) });
+      results.push({ season: s, ...(await ingestSeason(s, { metaOnly })) });
     }
-    return NextResponse.json({ ok: true, results });
+    return NextResponse.json({ ok: true, metaOnly, results });
   } catch (e) {
     console.error("[internal/ingest]", e);
     return NextResponse.json({ error: "ingest_failed", detail: String(e) }, { status: 500 });

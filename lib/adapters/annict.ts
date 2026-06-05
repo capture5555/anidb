@@ -74,6 +74,29 @@ const WORKS_BY_SEASON = /* GraphQL */ `
   }
 `;
 
+// 分析用の軽量クエリ（エピソード・放送回を取らない＝過去作品の一括取り込み向け）
+const WORKS_BY_SEASON_META = /* GraphQL */ `
+  query WorksBySeasonMeta($season: String!, $after: String) {
+    searchWorks(seasons: [$season], orderBy: { field: WATCHERS_COUNT, direction: DESC }, first: 50, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        annictId
+        title
+        titleKana
+        titleEn
+        seasonYear
+        seasonName
+        officialSiteUrl
+        media
+        watchersCount
+        image { recommendedImageUrl facebookOgImageUrl }
+        casts(first: 100) { nodes { name character { name } } }
+        staffs(first: 100) { nodes { roleText name } }
+      }
+    }
+  }
+`;
+
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const token = process.env.ANNICT_TOKEN;
   if (!token) throw new Error("ANNICT_TOKEN is not set");
@@ -91,13 +114,17 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
   return json.data as T;
 }
 
-/** "2026-spring" 形式のシーズンslugを受け取り作品一覧を取得 */
-export async function fetchWorksBySeason(seasonSlug: string): Promise<AnnictWork[]> {
+/** "2026-spring" 形式のシーズンslugを受け取り作品一覧を取得。metaOnlyでエピソード/放送回を省く。 */
+export async function fetchWorksBySeason(
+  seasonSlug: string,
+  opts: { metaOnly?: boolean } = {},
+): Promise<AnnictWork[]> {
   const works: AnnictWork[] = [];
   let after: string | null = null;
+  const query = opts.metaOnly ? WORKS_BY_SEASON_META : WORKS_BY_SEASON;
   // 安全のため最大5ページ
   for (let i = 0; i < 5; i++) {
-    const data: any = await gql(WORKS_BY_SEASON, { season: seasonSlug, after });
+    const data: any = await gql(query, { season: seasonSlug, after });
     const conn = data.searchWorks;
     for (const n of conn.nodes) {
       const work: AnnictWork = {

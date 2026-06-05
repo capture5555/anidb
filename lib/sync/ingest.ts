@@ -35,11 +35,14 @@ function computeStatus(programDates: string[]): WorkStatus {
  * ※ Annict.programs が放送情報を直接持つため、しょぼいカレンダーとの紐付けは不要になった。
  *   （サブタイトルの欠けを将来しょぼいで補完したい場合は lib/adapters/syoboi.ts を利用可能）
  */
-export async function ingestSeason(seasonSlug: string): Promise<IngestResult> {
+export async function ingestSeason(
+  seasonSlug: string,
+  opts: { metaOnly?: boolean } = {},
+): Promise<IngestResult> {
   const db = getAdminClient();
   const result: IngestResult = { works: 0, episodes: 0, programs: 0, errors: 0 };
 
-  const annictWorks = await fetchWorksBySeason(seasonSlug);
+  const annictWorks = await fetchWorksBySeason(seasonSlug, { metaOnly: opts.metaOnly });
 
   // 作品を並列処理（Vercelの実行時間制限内に収めるため）。
   const CONCURRENCY = 6;
@@ -48,7 +51,7 @@ export async function ingestSeason(seasonSlug: string): Promise<IngestResult> {
     await Promise.all(
       chunk.map(async (aw) => {
         try {
-          await ingestWork(db, aw, result);
+          await ingestWork(db, aw, result, opts.metaOnly ?? false);
           result.works++;
         } catch (e) {
           console.error(`[ingest] work=${aw.annictId} ${aw.title}`, e);
@@ -75,9 +78,13 @@ async function ingestWork(
   db: ReturnType<typeof getAdminClient>,
   aw: AnnictWork,
   result: IngestResult,
+  metaOnly = false,
 ) {
   const mainPrograms = aw.programs.filter((p) => p.startedAt);
-  const status = computeStatus(mainPrograms.filter((p) => !p.rebroadcast).map((p) => p.startedAt!));
+  // metaOnly(過去作品の分析用取り込み)は放送回が無いので終了扱いにする
+  const status = metaOnly
+    ? "finished"
+    : computeStatus(mainPrograms.filter((p) => !p.rebroadcast).map((p) => p.startedAt!));
 
   // 1) works upsert（annict_id を一意キーに）
   //    縦ポスター(poster_url)はここでは触らない（enrich-postersが別管理＝毎日の取込で消えない）
@@ -106,7 +113,34 @@ async function ingestWork(
   if (workErr || !workRow) throw workErr ?? new Error("work upsert failed");
   const workId = workRow.id;
 
-  // 2) episodes upsert（バッチ＝1作品1回。サブタイトルは Annict を初期値に）
+  // 2) キャスト・スタッフ（洗い替え。分析にも使うので metaOnly でも常に更新）
+  await db.from("work_casts").delete().eq("work_id", workId);
+  if (aw.casts.length) {
+    await db.from("work_casts").insert(
+      aw.casts.map((c, i) => ({
+        work_id: workId,
+        character_name: c.character,
+        person_name: c.name,
+        sort: i,
+      })),
+    );
+  }
+  await db.from("work_staff").delete().eq("work_id", workId);
+  if (aw.staffs.length) {
+    await db.from("work_staff").insert(
+      aw.staffs.map((s, i) => ({
+        work_id: workId,
+        role: s.roleText,
+        person_name: s.name,
+        sort: i,
+      })),
+    );
+  }
+
+  // metaOnly（過去作品の分析用取り込み）は放送回・話数を作らずここで終了
+  if (metaOnly) return;
+
+  // 3) episodes upsert（バッチ＝1作品1回。サブタイトルは Annict を初期値に）
   const episodeIdByNumber = new Map<number, string>();
   const missingSubtitle: number[] = []; // Annictにサブタイトルが無い話数
   const epRows = aw.episodes
@@ -149,30 +183,6 @@ async function ingestWork(
     } catch (e) {
       console.error(`[ingest] syoboi backfill failed for ${aw.title}`, e);
     }
-  }
-
-  // 3) キャスト・スタッフ（洗い替え）
-  await db.from("work_casts").delete().eq("work_id", workId);
-  if (aw.casts.length) {
-    await db.from("work_casts").insert(
-      aw.casts.map((c, i) => ({
-        work_id: workId,
-        character_name: c.character,
-        person_name: c.name,
-        sort: i,
-      })),
-    );
-  }
-  await db.from("work_staff").delete().eq("work_id", workId);
-  if (aw.staffs.length) {
-    await db.from("work_staff").insert(
-      aw.staffs.map((s, i) => ({
-        work_id: workId,
-        role: s.roleText,
-        person_name: s.name,
-        sort: i,
-      })),
-    );
   }
 
   // 4) channels（バッチ＝重複局名をまとめて1回）
