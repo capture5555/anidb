@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { AddToCalendar } from "@/components/AddToCalendar";
 import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
+import { pickOnePerEpisode } from "@/lib/programs";
 
 export async function generateMetadata({
   params,
@@ -31,10 +32,16 @@ export default async function WorkDetailPage({
   const work = await (await getDataProvider()).getWork(id);
   if (!work) notFound();
 
-  const firstProgram = work.programs[0] ?? null;
-  const upcomingPrograms = work.programs
+  // 系列局の同時ネットで同じ話数が並ぶため、1話1件（キー局代表）に整理
+  const repPrograms = pickOnePerEpisode(work.programs.filter((p) => !p.isRebroadcast));
+  const firstProgram = repPrograms[0] ?? work.programs[0] ?? null;
+  const upcomingPrograms = repPrograms
     .filter((p) => new Date(p.startAt).getTime() >= Date.now() - 1000 * 60 * 60 * 24)
     .slice(0, 6);
+  // 放送局数（代表局＋ほかN局の表示用）
+  const channelCount = new Set(
+    work.programs.filter((p) => p.channelName).map((p) => p.channelName),
+  ).size;
 
   return (
     <div className="mx-auto max-w-5xl px-5 sm:px-8">
@@ -163,7 +170,12 @@ export default async function WorkDetailPage({
               {firstProgram?.channelName && (
                 <div>
                   <dt className="text-muted text-xs">放送局</dt>
-                  <dd className="text-ink-soft mt-0.5">{firstProgram.channelName}</dd>
+                  <dd className="text-ink-soft mt-0.5">
+                    {firstProgram.channelName}
+                    {channelCount > 1 && (
+                      <span className="text-muted"> ほか{channelCount - 1}局</span>
+                    )}
+                  </dd>
                 </div>
               )}
               {firstProgram && (
@@ -177,11 +189,16 @@ export default async function WorkDetailPage({
             {upcomingPrograms.length > 0 && (
               <div className="mt-5 pt-5 border-t border-line">
                 <p className="text-xs text-muted mb-2">直近の放送予定</p>
-                <ul className="space-y-1.5">
+                <ul className="space-y-2">
                   {upcomingPrograms.map((p) => (
-                    <li key={p.id} className="flex justify-between gap-2 text-[0.82rem]">
-                      <span className="text-ink-soft tabular-nums">{formatAirShort(p.startAt)}</span>
-                      {p.count != null && <span className="text-muted">第{p.count}話</span>}
+                    <li key={p.id} className="text-[0.82rem]">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-ink-soft tabular-nums">{formatAirShort(p.startAt)}</span>
+                        {p.count != null && <span className="text-muted">第{p.count}話</span>}
+                      </div>
+                      {p.channelName && (
+                        <div className="text-[0.72rem] text-muted truncate">{p.channelName}</div>
+                      )}
                     </li>
                   ))}
                 </ul>

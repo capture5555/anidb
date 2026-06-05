@@ -4,7 +4,8 @@ import { getSession } from "@/lib/session";
 import { getAccessTokenForSession } from "@/lib/accounts";
 import { getDataProvider } from "@/lib/data/provider";
 import { syncSubscription } from "@/lib/sync/syncCalendars";
-import type { Subscription, SubscriptionMode } from "@/lib/types";
+import { pickOnePerEpisode } from "@/lib/programs";
+import type { Program, Subscription, SubscriptionMode } from "@/lib/types";
 
 const HORIZON_DAYS = 120;
 
@@ -17,13 +18,15 @@ interface Body {
   includeUrl?: boolean;
 }
 
-function countFuturePrograms(programs: { startAt: string; isRebroadcast: boolean }[]): number {
+function countFuturePrograms(programs: Program[]): number {
   const now = Date.now();
   const horizon = now + HORIZON_DAYS * 86400000;
-  return programs.filter((p) => {
+  const inWindow = programs.filter((p) => {
     const t = new Date(p.startAt).getTime();
     return t >= now - 86400000 && t <= horizon && !p.isRebroadcast;
-  }).length;
+  });
+  // 系列局の同時ネットは1話1件に集約して数える
+  return pickOnePerEpisode(inWindow).length;
 }
 
 export async function POST(req: NextRequest) {

@@ -6,6 +6,19 @@
  * 事前に .env.local に SUPABASE_* と ANNICT_TOKEN を設定しておくこと。
  * Node 26 の --experimental-strip-types で .ts を直接実行する（package.json参照）。
  */
+import { readFileSync } from "node:fs";
+
+// .env.local を手動ロード（単体nodeスクリプトはNext.jsと違い自動で読まないため）
+try {
+  const env = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
+  for (const line of env.split("\n")) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+} catch {
+  /* 環境変数があれば動く */
+}
+
 import { ingestSeason } from "../lib/sync/ingest.ts";
 import { seasonOf, nextSeason, seasonSlug } from "../lib/season.ts";
 

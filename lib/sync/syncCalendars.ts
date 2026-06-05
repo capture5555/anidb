@@ -3,6 +3,7 @@ import { getDataProvider } from "@/lib/data/provider";
 import { buildEvent } from "./eventBuilder";
 import { insertEvent, patchEvent } from "@/lib/google/calendar";
 import { getAccessTokenForSession } from "@/lib/accounts";
+import { pickOnePerEpisode } from "@/lib/programs";
 import type { Subscription } from "@/lib/types";
 
 /** 何日先までの放送回を登録対象にするか */
@@ -48,10 +49,13 @@ export async function syncSubscription(
 
   const now = Date.now();
   const horizon = now + HORIZON_DAYS * 86400000;
-  const targets = work.programs.filter((p) => {
+  const inWindow = work.programs.filter((p) => {
     const t = new Date(p.startAt).getTime();
     return t >= now - 86400000 && t <= horizon && !p.isRebroadcast;
   });
+  // 系列局での同時ネット放送がある作品は、1話につき1件だけ登録する
+  // （同じ話数の中で最も早い放送＝通常キー局を代表に選ぶ）。これでカレンダーの重複を防ぐ。
+  const targets = pickOnePerEpisode(inWindow);
 
   const { data: existingRows } = await db
     .from("calendar_events")
