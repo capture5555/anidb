@@ -37,9 +37,35 @@ export function WorkCover({
   className?: string;
 }) {
   if (url) {
+    // AniListの縦ポスターはそのまま敷き詰める。それ以外（Annictの横画像等）は
+    // 画像全体を見せつつ、上下の余白を同じ画像のぼかしで埋める（レターボックスのぼかし版）。
+    const isPortraitPoster = url.includes("anilistcdn");
+    if (isPortraitPoster) {
+      return (
+        <div className={`relative overflow-hidden bg-paper-deep ${className}`}>
+          <Image src={url} alt={title} fill className="object-cover" sizes="(max-width:640px) 50vw, 240px" />
+        </div>
+      );
+    }
     return (
       <div className={`relative overflow-hidden bg-paper-deep ${className}`}>
-        <Image src={url} alt={title} fill className="object-cover" sizes="(max-width:640px) 50vw, 240px" />
+        {/* 背景: 同じ画像を拡大・ぼかして余白を埋める */}
+        <Image
+          src={url}
+          alt=""
+          aria-hidden
+          fill
+          className="object-cover scale-125 blur-xl opacity-60"
+          sizes="(max-width:640px) 50vw, 240px"
+        />
+        {/* 前景: 画像全体を切らずに中央表示 */}
+        <Image
+          src={url}
+          alt={title}
+          fill
+          className="object-contain"
+          sizes="(max-width:640px) 50vw, 240px"
+        />
       </div>
     );
   }
