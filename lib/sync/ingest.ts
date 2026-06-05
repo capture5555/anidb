@@ -5,11 +5,7 @@ import {
   type AnnictWork,
 } from "@/lib/adapters/annict";
 import { fetchSubtitlesByTitle } from "@/lib/adapters/syoboi";
-import { fetchPosterUrl } from "@/lib/adapters/anilist";
 import type { WorkStatus } from "@/lib/types";
-
-/** 縦ポスター画像を AniList から補完するか（既定オフ。レート制限のため通常は enrich-posters を別途実行） */
-const POSTER_ENRICH = process.env.POSTER_ENRICH === "true";
 
 /** Annictにサブタイトルが無い作品を、しょぼいカレンダーで補完するか */
 const SYOBOI_BACKFILL = (process.env.SYOBOI_BACKFILL ?? "true") !== "false";
@@ -45,14 +41,21 @@ export async function ingestSeason(seasonSlug: string): Promise<IngestResult> {
 
   const annictWorks = await fetchWorksBySeason(seasonSlug);
 
-  for (const aw of annictWorks) {
-    try {
-      await ingestWork(db, aw, result);
-      result.works++;
-    } catch (e) {
-      console.error(`[ingest] work=${aw.annictId} ${aw.title}`, e);
-      result.errors++;
-    }
+  // 作品を並列処理（Vercelの実行時間制限内に収めるため）。
+  const CONCURRENCY = 6;
+  for (let i = 0; i < annictWorks.length; i += CONCURRENCY) {
+    const chunk = annictWorks.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      chunk.map(async (aw) => {
+        try {
+          await ingestWork(db, aw, result);
+          result.works++;
+        } catch (e) {
+          console.error(`[ingest] work=${aw.annictId} ${aw.title}`, e);
+          result.errors++;
+        }
+      }),
+    );
   }
 
   await db.from("sync_runs").insert({
@@ -76,14 +79,8 @@ async function ingestWork(
   const mainPrograms = aw.programs.filter((p) => p.startedAt);
   const status = computeStatus(mainPrograms.filter((p) => !p.rebroadcast).map((p) => p.startedAt!));
 
-  // キービジュアルは縦ポスター優先（AniList）→ 無ければAnnictの画像
-  let keyVisualUrl = aw.imageUrl;
-  if (POSTER_ENRICH) {
-    const poster = await fetchPosterUrl(aw.title, aw.seasonYear).catch(() => null);
-    if (poster) keyVisualUrl = poster;
-  }
-
   // 1) works upsert（annict_id を一意キーに）
+  //    縦ポスター(poster_url)はここでは触らない（enrich-postersが別管理＝毎日の取込で消えない）
   const { data: workRow, error: workErr } = await db
     .from("works")
     .upsert(
@@ -98,7 +95,7 @@ async function ingestWork(
         season_year: aw.seasonYear,
         season_name: normalizeSeasonName(aw.seasonName),
         status,
-        key_visual_url: keyVisualUrl,
+        key_visual_url: aw.imageUrl,
         popularity: aw.watchersCount,
         source_updated_at: new Date().toISOString(),
       },
@@ -109,30 +106,28 @@ async function ingestWork(
   if (workErr || !workRow) throw workErr ?? new Error("work upsert failed");
   const workId = workRow.id;
 
-  // 2) episodes upsert（サブタイトルは Annict を初期値に）
+  // 2) episodes upsert（バッチ＝1作品1回。サブタイトルは Annict を初期値に）
   const episodeIdByNumber = new Map<number, string>();
   const missingSubtitle: number[] = []; // Annictにサブタイトルが無い話数
-  for (const ep of aw.episodes) {
-    if (ep.number == null) continue;
-    const { data: epRow } = await db
+  const epRows = aw.episodes
+    .filter((e) => e.number != null)
+    .map((e) => ({
+      work_id: workId,
+      annict_episode_id: e.annictId,
+      number: e.number,
+      number_text: e.numberText,
+      title: e.title,
+      title_source: e.title ? "annict" : null,
+      sort: e.number,
+    }));
+  if (epRows.length > 0) {
+    const { data: inserted } = await db
       .from("episodes")
-      .upsert(
-        {
-          work_id: workId,
-          annict_episode_id: ep.annictId,
-          number: ep.number,
-          number_text: ep.numberText,
-          title: ep.title,
-          title_source: ep.title ? "annict" : null,
-          sort: ep.number,
-        },
-        { onConflict: "work_id,number" },
-      )
-      .select("id")
-      .single();
-    if (epRow) {
-      episodeIdByNumber.set(ep.number, epRow.id);
-      if (!ep.title) missingSubtitle.push(ep.number);
+      .upsert(epRows, { onConflict: "work_id,number" })
+      .select("id, number, title");
+    for (const e of inserted ?? []) {
+      episodeIdByNumber.set(Number(e.number), e.id);
+      if (!e.title) missingSubtitle.push(Number(e.number));
       result.episodes++;
     }
   }
@@ -180,36 +175,38 @@ async function ingestWork(
     );
   }
 
-  // 4) channels / programs（Annictの放送回を直接登録。話数→episode_id を対応付け）
+  // 4) channels（バッチ＝重複局名をまとめて1回）
   const channelIdByName = new Map<string, string>();
-  for (const p of mainPrograms) {
-    if (!p.channelName) continue;
-    if (!channelIdByName.has(p.channelName)) {
-      const { data: chRow } = await db
-        .from("channels")
-        .upsert({ name: p.channelName }, { onConflict: "name" })
-        .select("id")
-        .single();
-      if (chRow) channelIdByName.set(p.channelName, chRow.id);
-    }
+  const chNames = [...new Set(mainPrograms.map((p) => p.channelName).filter(Boolean) as string[])];
+  if (chNames.length > 0) {
+    const { data: chRows } = await db
+      .from("channels")
+      .upsert(
+        chNames.map((name) => ({ name })),
+        { onConflict: "name" },
+      )
+      .select("id, name");
+    for (const c of chRows ?? []) channelIdByName.set(c.name, c.id);
   }
 
-  for (const p of mainPrograms) {
-    const episodeId = p.episodeNumber != null ? episodeIdByNumber.get(p.episodeNumber) ?? null : null;
-    const startMs = new Date(p.startedAt!).getTime();
-    await db.from("programs").upsert(
-      {
+  // 5) programs（バッチ＝1作品1回）。annict_program_id が無い回は重複防止できないため除外。
+  const progRows = mainPrograms
+    .filter((p) => p.annictId != null)
+    .map((p) => {
+      const startMs = new Date(p.startedAt!).getTime();
+      return {
         work_id: workId,
-        episode_id: episodeId,
+        episode_id: p.episodeNumber != null ? episodeIdByNumber.get(p.episodeNumber) ?? null : null,
         channel_id: p.channelName ? channelIdByName.get(p.channelName) ?? null : null,
         count: p.episodeNumber,
         start_at: p.startedAt,
         end_at: new Date(startMs + 30 * 60000).toISOString(), // 既定30分枠
         is_rebroadcast: p.rebroadcast,
         annict_program_id: p.annictId,
-      },
-      { onConflict: "annict_program_id" },
-    );
-    result.programs++;
+      };
+    });
+  if (progRows.length > 0) {
+    await db.from("programs").upsert(progRows, { onConflict: "annict_program_id" });
+    result.programs += progRows.length;
   }
 }

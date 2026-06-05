@@ -23,7 +23,7 @@ export class SupabaseDataProvider implements DataProvider {
 
     let q = this.db
       .from("works")
-      .select("id, title, title_kana, key_visual_url, season_year, season_name, status, media, work_genres(genres(name))", {
+      .select("id, title, title_kana, key_visual_url, poster_url, season_year, season_name, status, media, work_genres(genres(name))", {
         count: "exact",
       });
 
@@ -60,7 +60,7 @@ export class SupabaseDataProvider implements DataProvider {
       id: row.id,
       title: row.title,
       titleKana: row.title_kana,
-      keyVisualUrl: row.key_visual_url,
+      keyVisualUrl: row.poster_url ?? row.key_visual_url,
       seasonYear: row.season_year,
       seasonName: row.season_name,
       status: row.status,
@@ -88,7 +88,7 @@ export class SupabaseDataProvider implements DataProvider {
       title: w.title,
       titleKana: w.title_kana,
       titleEn: w.title_en,
-      keyVisualUrl: w.key_visual_url,
+      keyVisualUrl: w.poster_url ?? w.key_visual_url,
       seasonYear: w.season_year,
       seasonName: w.season_name,
       status: w.status,

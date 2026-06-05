@@ -19,19 +19,19 @@ async function main() {
   const db = getAdminClient();
   const { data: works, error } = await db
     .from("works")
-    .select("id, title, season_year, key_visual_url")
+    .select("id, title, season_year, poster_url")
     .order("title");
   if (error) throw error;
 
-  // 既にAniListポスター済みの作品はスキップ（再実行で続きから）
-  const todo = works!.filter((w) => !(w.key_visual_url ?? "").includes("anilistcdn"));
+  // 既にポスター済みの作品はスキップ（再実行で続きから）
+  const todo = works!.filter((w) => !w.poster_url);
   console.log(`対象 ${todo.length} / 全 ${works!.length} 作品（済みはスキップ）\n`);
 
   let ok = 0;
   for (const w of todo) {
     const url = await fetchPosterUrl(w.title, w.season_year).catch(() => null);
     if (url) {
-      await db.from("works").update({ key_visual_url: url }).eq("id", w.id);
+      await db.from("works").update({ poster_url: url }).eq("id", w.id);
       ok++;
       console.log("✓", w.title);
     } else {

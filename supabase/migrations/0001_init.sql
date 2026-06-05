@@ -21,6 +21,7 @@ create table if not exists works (
   season_name text check (season_name in ('winter','spring','summer','autumn')),
   status text not null default 'upcoming' check (status in ('upcoming','airing','finished')),
   key_visual_url text,
+  poster_url text,                         -- 縦ポスター（AniList。ingestは触らない）
   popularity integer not null default 0,  -- 人気指標（Annictウォッチャー数）
   company_id uuid,
   source_updated_at timestamptz,
