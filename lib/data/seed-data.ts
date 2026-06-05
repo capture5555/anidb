@@ -384,6 +384,7 @@ function buildWork(spec: WorkSpec): WorkDetail {
     seasonName: spec.seasonName,
     status: spec.status,
     media: spec.media,
+    popularity: 1000 - hashId(spec.id), // デモ用の擬似人気度
     genres: spec.genres,
     synopsis: spec.synopsis,
     officialSiteUrl: spec.officialSiteUrl ?? null,

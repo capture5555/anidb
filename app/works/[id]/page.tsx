@@ -67,6 +67,11 @@ export default async function WorkDetailPage({
           <div className="flex items-center gap-3 flex-wrap">
             <StatusBadge status={work.status} />
             <span className="text-sm text-muted">{formatSeason(work.seasonYear, work.seasonName)}</span>
+            {work.popularity > 0 && (
+              <span className="text-sm text-muted" title="Annictのウォッチャー数">
+                ♡ {work.popularity.toLocaleString("ja-JP")}
+              </span>
+            )}
           </div>
           <h1 className="display text-3xl sm:text-4xl leading-tight mt-3">{work.title}</h1>
           {work.titleEn && <p className="text-sm text-muted mt-1 tracking-wide">{work.titleEn}</p>}

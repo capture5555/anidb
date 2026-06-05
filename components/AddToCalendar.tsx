@@ -8,9 +8,11 @@ type Phase = "idle" | "loading" | "need-auth" | "choosing" | "submitting" | "don
 export function AddToCalendar({
   workId,
   workTitle,
+  compact = false,
 }: {
   workId: string;
   workTitle: string;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -97,13 +99,24 @@ export function AddToCalendar({
 
   return (
     <>
-      <button
-        onClick={openModal}
-        className="inline-flex items-center gap-2 bg-accent text-paper px-5 py-2.5 rounded-[var(--radius-card)] text-sm font-medium tracking-wide hover:bg-[var(--color-accent-soft)] transition-colors"
-      >
-        <CalendarGlyph />
-        Googleカレンダーへ追加
-      </button>
+      {compact ? (
+        <button
+          onClick={openModal}
+          title="Googleカレンダーへ追加"
+          aria-label="Googleカレンダーへ追加"
+          className="inline-flex items-center justify-center w-8 h-8 border border-line-strong text-ink-soft rounded-[var(--radius-card)] hover:border-accent hover:text-accent transition-colors"
+        >
+          <CalendarGlyph />
+        </button>
+      ) : (
+        <button
+          onClick={openModal}
+          className="inline-flex items-center gap-2 bg-accent text-paper px-5 py-2.5 rounded-[var(--radius-card)] text-sm font-medium tracking-wide hover:bg-[var(--color-accent-soft)] transition-colors"
+        >
+          <CalendarGlyph />
+          Googleカレンダーへ追加
+        </button>
+      )}
 
       {open && (
         <div

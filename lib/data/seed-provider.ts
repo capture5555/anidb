@@ -8,6 +8,8 @@ import type {
   WorkSummary,
 } from "@/lib/types";
 import { nextSeason, seasonOf, seasonSlug } from "@/lib/season";
+import { airSlot } from "@/lib/format";
+import type { ScheduleEntry } from "@/lib/types";
 
 function toSummary(w: WorkDetail): WorkSummary {
   return {
@@ -19,6 +21,7 @@ function toSummary(w: WorkDetail): WorkSummary {
     seasonName: w.seasonName,
     status: w.status,
     media: w.media,
+    popularity: w.popularity,
     genres: w.genres,
   };
 }
@@ -35,19 +38,16 @@ export class SeedDataProvider implements DataProvider {
       switch (query.tab) {
         case "this_season":
           items = items.filter(
-            (w) => w.seasonYear === cur.year && w.seasonName === cur.season,
+            (w) => w.seasonYear === cur.year && w.seasonName === cur.season && w.media !== "movie",
           );
           break;
         case "next_season":
           items = items.filter(
-            (w) => w.seasonYear === nxt.year && w.seasonName === nxt.season,
+            (w) => w.seasonYear === nxt.year && w.seasonName === nxt.season && w.media !== "movie",
           );
           break;
-        case "airing":
-          items = items.filter((w) => w.status === "airing");
-          break;
-        case "upcoming":
-          items = items.filter((w) => w.status === "upcoming");
+        case "movie":
+          items = items.filter((w) => w.media === "movie");
           break;
       }
     }
@@ -108,5 +108,28 @@ export class SeedDataProvider implements DataProvider {
     const set = new Set<string>();
     for (const w of SEED_WORKS) w.genres.forEach((g) => set.add(g));
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ja"));
+  }
+
+  async getSchedule(): Promise<ScheduleEntry[]> {
+    const now = Date.now();
+    const entries: ScheduleEntry[] = [];
+    for (const w of SEED_WORKS) {
+      if (w.status !== "airing" || w.media === "movie") continue;
+      const next = w.programs
+        .filter((p) => !p.isRebroadcast && new Date(p.startAt).getTime() >= now)
+        .sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
+      if (!next) continue;
+      entries.push({
+        workId: w.id,
+        title: w.title,
+        posterUrl: w.keyVisualUrl,
+        weekday: airSlot(next.startAt).weekday,
+        startAt: next.startAt,
+        channelName: next.channelName,
+        count: next.count,
+        popularity: w.popularity,
+      });
+    }
+    return entries;
   }
 }

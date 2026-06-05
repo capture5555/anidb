@@ -8,6 +8,15 @@ import type {
   WorkSummary,
 } from "@/lib/types";
 import { nextSeason, seasonOf, seasonSlug } from "@/lib/season";
+import { airSlot } from "@/lib/format";
+import type { ScheduleEntry } from "@/lib/types";
+
+const CH_PRIORITY = ["TOKYO MX", "テレビ東京", "テレビ朝日", "日本テレビ", "TBS", "フジテレビ", "NHK", "BS11", "AT-X"];
+function chRank(name: string | null): number {
+  if (!name) return 99;
+  const i = CH_PRIORITY.findIndex((p) => name.includes(p));
+  return i < 0 ? 90 : i;
+}
 
 /**
  * Supabase(PostgreSQL)バックエンド実装。
@@ -23,18 +32,18 @@ export class SupabaseDataProvider implements DataProvider {
 
     let q = this.db
       .from("works")
-      .select("id, title, title_kana, key_visual_url, poster_url, season_year, season_name, status, media, work_genres(genres(name))", {
+      .select("id, title, title_kana, key_visual_url, poster_url, season_year, season_name, status, media, popularity, work_genres(genres(name))", {
         count: "exact",
       });
 
+    // media が null の作品も除外されないよう「movie以外 or null」で映画を除く
+    const notMovie = "media.neq.movie,media.is.null";
     if (query.tab === "this_season") {
-      q = q.eq("season_year", cur.year).eq("season_name", cur.season);
+      q = q.eq("season_year", cur.year).eq("season_name", cur.season).or(notMovie);
     } else if (query.tab === "next_season") {
-      q = q.eq("season_year", nxt.year).eq("season_name", nxt.season);
-    } else if (query.tab === "airing") {
-      q = q.eq("status", "airing");
-    } else if (query.tab === "upcoming") {
-      q = q.eq("status", "upcoming");
+      q = q.eq("season_year", nxt.year).eq("season_name", nxt.season).or(notMovie);
+    } else if (query.tab === "movie") {
+      q = q.eq("media", "movie");
     }
 
     if (query.season) {
@@ -65,6 +74,7 @@ export class SupabaseDataProvider implements DataProvider {
       seasonName: row.season_name,
       status: row.status,
       media: row.media,
+      popularity: row.popularity ?? 0,
       genres: (row.work_genres ?? []).map((wg: any) => wg.genres?.name).filter(Boolean),
     }));
 
@@ -93,6 +103,7 @@ export class SupabaseDataProvider implements DataProvider {
       seasonName: w.season_name,
       status: w.status,
       media: w.media,
+      popularity: w.popularity ?? 0,
       genres: (w.work_genres ?? []).map((wg: any) => wg.genres?.name).filter(Boolean),
       synopsis: w.synopsis,
       officialSiteUrl: w.official_site_url,
@@ -162,5 +173,50 @@ export class SupabaseDataProvider implements DataProvider {
     const { data, error } = await this.db.from("genres").select("name").order("name");
     if (error) throw error;
     return (data ?? []).map((g: any) => g.name);
+  }
+
+  async getSchedule(): Promise<ScheduleEntry[]> {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const horizon = new Date(now.getTime() + 8 * 86400000).toISOString();
+    const { data, error } = await this.db
+      .from("programs")
+      .select(
+        "start_at, count, channels(name), works!inner(id, title, poster_url, key_visual_url, status, media, popularity)",
+      )
+      .gte("start_at", nowIso)
+      .lte("start_at", horizon)
+      .eq("is_rebroadcast", false)
+      .eq("works.status", "airing")
+      .order("start_at", { ascending: true })
+      .limit(8000);
+    if (error) throw error;
+
+    // 作品ごとに「最も早い放送（同時刻ならキー局）」を代表として1件に集約（映画は除外）
+    const byWork = new Map<string, any>();
+    for (const p of data ?? []) {
+      if ((p as any).works.media === "movie") continue;
+      const id = (p as any).works.id;
+      const cur = byWork.get(id);
+      if (!cur) {
+        byWork.set(id, p);
+      } else if (
+        p.start_at < cur.start_at ||
+        (p.start_at === cur.start_at && chRank((p as any).channels?.name) < chRank(cur.channels?.name))
+      ) {
+        byWork.set(id, p);
+      }
+    }
+
+    return [...byWork.values()].map((p: any) => ({
+      workId: p.works.id,
+      title: p.works.title,
+      posterUrl: p.works.poster_url ?? p.works.key_visual_url,
+      weekday: airSlot(p.start_at).weekday,
+      startAt: p.start_at,
+      channelName: p.channels?.name ?? null,
+      count: p.count,
+      popularity: p.works.popularity ?? 0,
+    }));
   }
 }

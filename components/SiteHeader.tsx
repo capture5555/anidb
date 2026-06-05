@@ -15,6 +15,9 @@ export function SiteHeader() {
             <Link href="/" className="hover:text-accent transition-colors">
               一覧
             </Link>
+            <Link href="/schedule" className="hover:text-accent transition-colors">
+              番組表
+            </Link>
             <Link href="/me" className="hover:text-accent transition-colors">
               マイ登録
             </Link>

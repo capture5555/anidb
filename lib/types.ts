@@ -67,6 +67,7 @@ export interface WorkSummary {
   status: WorkStatus;
   media: Media | null;
   genres: string[];
+  popularity: number; // 人気度（Annictウォッチャー数）
 }
 
 /** 詳細ページ用の完全型 */
@@ -108,7 +109,7 @@ export interface GoogleCalendarInfo {
 
 // --- 一覧クエリ ---
 
-export type ListTab = "this_season" | "next_season" | "airing" | "upcoming";
+export type ListTab = "this_season" | "next_season" | "movie";
 
 export interface WorkQuery {
   tab?: ListTab;
@@ -126,4 +127,16 @@ export interface WorkListResult {
   perPage: number;
   total: number;
   hasNext: boolean;
+}
+
+/** ミニ番組表の1エントリ（作品の次回放送） */
+export interface ScheduleEntry {
+  workId: string;
+  title: string;
+  posterUrl: string | null;
+  weekday: number; // 0=日 .. 6=土（JST）
+  startAt: string; // ISO（次回放送）
+  channelName: string | null;
+  count: number | null; // 話数
+  popularity: number;
 }

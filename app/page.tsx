@@ -5,13 +5,12 @@ import { FilterBar } from "@/components/FilterBar";
 import type { ListTab } from "@/lib/types";
 import { seasonOf, nextSeason, formatSeason } from "@/lib/season";
 
-const VALID_TABS: ListTab[] = ["this_season", "next_season", "airing", "upcoming"];
+const VALID_TABS: ListTab[] = ["this_season", "next_season", "movie"];
 
 const TAB_LEAD: Record<ListTab, string> = {
-  this_season: "いま放送されているクールの作品です。",
-  next_season: "次のクールに放送予定の作品です。",
-  airing: "現在オンエア中の作品をまとめました。",
-  upcoming: "これから放送が始まる作品です。",
+  this_season: "いま放送中・放送予定のTV作品です（人気順）。",
+  next_season: "次のクールに放送予定のTV作品です（人気順）。",
+  movie: "劇場版・映画作品です（人気順）。",
 };
 
 export default async function HomePage({
@@ -36,9 +35,11 @@ export default async function HomePage({
   const cur = seasonOf(now);
   const nxt = nextSeason(cur.year, cur.season);
   const headingSeason =
-    tab === "next_season"
-      ? formatSeason(nxt.year, nxt.season)
-      : formatSeason(cur.year, cur.season);
+    tab === "movie"
+      ? "劇場版・映画"
+      : tab === "next_season"
+        ? formatSeason(nxt.year, nxt.season)
+        : formatSeason(cur.year, cur.season);
 
   return (
     <div className="mx-auto max-w-6xl px-5 sm:px-8">

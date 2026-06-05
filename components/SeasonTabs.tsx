@@ -2,10 +2,9 @@ import Link from "next/link";
 import type { ListTab } from "@/lib/types";
 
 const TABS: { key: ListTab; label: string; sub: string }[] = [
-  { key: "this_season", label: "今シーズン", sub: "This season" },
-  { key: "next_season", label: "来シーズン", sub: "Next season" },
-  { key: "airing", label: "放送中", sub: "On air" },
-  { key: "upcoming", label: "放送予定", sub: "Upcoming" },
+  { key: "this_season", label: "今期", sub: "This season" },
+  { key: "next_season", label: "来期", sub: "Next season" },
+  { key: "movie", label: "映画", sub: "Movies" },
 ];
 
 export function SeasonTabs({ active }: { active: ListTab }) {
