@@ -27,8 +27,8 @@ export default async function HomePage({
   const genre = sp.genre?.trim() || undefined;
 
   const provider = await getDataProvider();
-  const [{ items }, genres] = await Promise.all([
-    provider.listWorks({ tab, q, genre, perPage: 48 }),
+  const [{ items, total }, genres] = await Promise.all([
+    provider.listWorks({ tab, q, genre, perPage: 500 }),
     provider.listGenres(),
   ]);
 
@@ -68,7 +68,7 @@ export default async function HomePage({
         <p className="text-sm text-ink-soft">
           {q ? `「${q}」の検索結果` : genre ? `ジャンル: ${genre}` : TAB_LEAD[tab]}
         </p>
-        <p className="text-xs text-muted tabular-nums">{items.length} 作品</p>
+        <p className="text-xs text-muted tabular-nums">{total} 作品</p>
       </div>
 
       {/* グリッド */}

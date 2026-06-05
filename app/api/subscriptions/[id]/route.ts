@@ -54,6 +54,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     .maybeSingle();
   if (!sub) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
+  let removed = 0;
   if (removeEvents) {
     try {
       const accessToken = await getAccessTokenForSession(session);
@@ -65,14 +66,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         for (const ev of events ?? []) {
           if (ev.google_event_id) {
             await deleteEvent(accessToken, sub.google_calendar_id, ev.google_event_id).catch(() => {});
+            removed++;
           }
         }
       }
+      // 台帳も削除（再登録時に正しく作り直せるように）
+      await db.from("calendar_events").delete().eq("subscription_id", id);
     } catch (e) {
       console.error("[subscriptions.delete events]", e);
     }
   }
 
   await db.from("subscriptions").update({ status: "cancelled" }).eq("id", id);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, removedEvents: removed });
 }
