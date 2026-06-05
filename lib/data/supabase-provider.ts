@@ -219,4 +219,37 @@ export class SupabaseDataProvider implements DataProvider {
       popularity: p.works.popularity ?? 0,
     }));
   }
+
+  async getUpcomingBroadcasts(limit: number): Promise<ScheduleEntry[]> {
+    const nowIso = new Date().toISOString();
+    const { data } = await this.db
+      .from("programs")
+      .select(
+        "start_at, count, channels(name), works!inner(id, title, poster_url, key_visual_url, status, media, popularity)",
+      )
+      .gte("start_at", nowIso)
+      .eq("is_rebroadcast", false)
+      .eq("works.status", "airing")
+      .order("start_at", { ascending: true })
+      .limit(300);
+    const seen = new Set<string>();
+    const out: ScheduleEntry[] = [];
+    for (const p of (data ?? []) as any[]) {
+      if (p.works.media === "movie") continue;
+      if (seen.has(p.works.id)) continue;
+      seen.add(p.works.id);
+      out.push({
+        workId: p.works.id,
+        title: p.works.title,
+        posterUrl: p.works.poster_url ?? p.works.key_visual_url,
+        weekday: airSlot(p.start_at).weekday,
+        startAt: p.start_at,
+        channelName: p.channels?.name ?? null,
+        count: p.count,
+        popularity: p.works.popularity ?? 0,
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
 }

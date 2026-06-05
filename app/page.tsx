@@ -2,6 +2,7 @@ import { getDataProvider } from "@/lib/data/provider";
 import { SeasonTabs } from "@/components/SeasonTabs";
 import { WorkCard } from "@/components/WorkCard";
 import { FilterBar } from "@/components/FilterBar";
+import { UpcomingStrip } from "@/components/UpcomingStrip";
 import type { ListTab } from "@/lib/types";
 import { seasonOf, nextSeason, formatSeason } from "@/lib/season";
 
@@ -53,6 +54,9 @@ export default async function HomePage({
           放送中・放送予定の作品をまとめて見渡せます。気になる作品は、詳細ページから必要な分だけGoogleカレンダーへ登録できます。
         </p>
       </section>
+
+      {/* この後の放送（ミニ番組表） */}
+      <UpcomingStrip />
 
       {/* タブ */}
       <div className="pt-7">

@@ -132,4 +132,9 @@ export class SeedDataProvider implements DataProvider {
     }
     return entries;
   }
+
+  async getUpcomingBroadcasts(limit: number): Promise<ScheduleEntry[]> {
+    const all = await this.getSchedule();
+    return all.sort((a, b) => a.startAt.localeCompare(b.startAt)).slice(0, limit);
+  }
 }

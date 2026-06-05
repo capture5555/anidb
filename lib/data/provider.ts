@@ -18,6 +18,8 @@ export interface DataProvider {
   listGenres(): Promise<string[]>;
   /** ミニ番組表：放送中TV作品の次回放送を返す */
   getSchedule(): Promise<ScheduleEntry[]>;
+  /** 直近の放送（この後の放送）を早い順に返す（1作品1件） */
+  getUpcomingBroadcasts(limit: number): Promise<ScheduleEntry[]>;
 }
 
 let cached: DataProvider | null = null;
