@@ -1,15 +1,15 @@
-import type { DataProvider } from "./provider";
-import { getAdminClient } from "@/lib/supabase/admin";
+import type { DataProvider } from "./provider.ts";
+import { getAdminClient } from "../supabase/admin.ts";
 import type {
   Season,
   WorkDetail,
   WorkListResult,
   WorkQuery,
   WorkSummary,
-} from "@/lib/types";
-import { nextSeason, seasonOf, seasonSlug } from "@/lib/season";
-import { airSlot } from "@/lib/format";
-import type { ScheduleEntry } from "@/lib/types";
+} from "../types.ts";
+import { nextSeason, seasonOf, seasonSlug } from "../season.ts";
+import { airSlot } from "../format.ts";
+import type { ScheduleEntry } from "../types.ts";
 
 const CH_PRIORITY = ["TOKYO MX", "テレビ東京", "テレビ朝日", "日本テレビ", "TBS", "フジテレビ", "NHK", "BS11", "AT-X"];
 function chRank(name: string | null): number {

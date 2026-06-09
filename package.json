@@ -8,11 +8,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "ingest": "node --experimental-strip-types scripts/ingest.ts",
     "verify-linking": "node --experimental-strip-types scripts/verify-linking.ts",
     "enrich-posters": "node --experimental-strip-types scripts/enrich-posters.ts",
     "enrich-popularity": "node --experimental-strip-types scripts/enrich-popularity.ts",
-    "enrich-scores": "node --experimental-strip-types scripts/enrich-scores.ts"
+    "enrich-scores": "node --experimental-strip-types scripts/enrich-scores.ts",
+    "cleanup-google-events": "node --experimental-strip-types scripts/cleanup-google-events.ts",
+    "collect-annict-stats": "node --experimental-strip-types scripts/collect-annict-stats.ts",
+    "collect-jikkyo": "node --experimental-strip-types scripts/collect-jikkyo.ts",
+    "reanalyze-comments": "node --experimental-strip-types scripts/reanalyze-comments.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -21,11 +27,13 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.0.4",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "tailwindcss": "^4.0.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "wrangler": "^4.14.4"
   }
 }

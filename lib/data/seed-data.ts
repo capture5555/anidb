@@ -7,7 +7,7 @@ import type {
   Season,
   WorkStatus,
   Media,
-} from "@/lib/types";
+} from "../types.ts";
 
 /**
  * 開発・デモ用のサンプルデータ。

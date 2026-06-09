@@ -1,23 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isGoogleConfigured } from "@/lib/google/oauth";
 import { getSession } from "@/lib/session";
-import { getAccessTokenForSession } from "@/lib/accounts";
 import { getDataProvider } from "@/lib/data/provider";
-import { syncSubscription } from "@/lib/sync/syncCalendars";
 import { pickOnePerEpisode } from "@/lib/programs";
-import type { Program, Subscription, SubscriptionMode } from "@/lib/types";
+import type { Program, SubscriptionMode } from "@/lib/types";
 
 const HORIZON_DAYS = 120;
 
 interface Body {
   workId: string;
-  googleCalendarId: string;
   mode?: SubscriptionMode;
   includeSubtitle?: boolean;
   includeChannel?: boolean;
   includeUrl?: boolean;
 }
 
+/** フィードに載る予定の放送回数（登録直後のフィードバック表示用） */
 function countFuturePrograms(programs: Program[]): number {
   const now = Date.now();
   const horizon = now + HORIZON_DAYS * 86400000;
@@ -30,14 +28,13 @@ function countFuturePrograms(programs: Program[]): number {
 }
 
 export async function POST(req: NextRequest) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
   let body: Body;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
   }
-  if (!body.workId || !body.googleCalendarId) {
+  if (!body.workId) {
     return NextResponse.json({ error: "missing_fields" }, { status: 400 });
   }
 
@@ -45,11 +42,10 @@ export async function POST(req: NextRequest) {
   const work = await provider.getWork(body.workId);
   if (!work) return NextResponse.json({ error: "work_not_found" }, { status: 404 });
 
-  // --- デモモード（Google未設定）: 実登録せず、登録される件数を返す ---
+  // --- デモモード（Google未設定）: 実登録せず、フィードに載る件数を返す ---
   if (!isGoogleConfigured()) {
     return NextResponse.json({
       created: countFuturePrograms(work.programs),
-      updated: 0,
       demo: true,
     });
   }
@@ -61,11 +57,11 @@ export async function POST(req: NextRequest) {
   const { getAdminClient } = await import("@/lib/supabase/admin");
   const db = getAdminClient();
 
-  // 購読の upsert（重複登録防止: unique(user_id, work_id, google_calendar_id)）
+  // 購読の upsert（重複登録防止: unique(user_id, work_id)）
+  // 解除済み(cancelled)の行があっても active へ戻す
   const subRow = {
     user_id: session.userId,
     work_id: body.workId,
-    google_calendar_id: body.googleCalendarId,
     mode: body.mode ?? "per_episode",
     include_subtitle: body.includeSubtitle ?? true,
     include_channel: body.includeChannel ?? true,
@@ -75,7 +71,7 @@ export async function POST(req: NextRequest) {
   };
   const { data: upserted, error } = await db
     .from("subscriptions")
-    .upsert(subRow, { onConflict: "user_id,work_id,google_calendar_id" })
+    .upsert(subRow, { onConflict: "user_id,work_id" })
     .select()
     .single();
   if (error || !upserted) {
@@ -83,29 +79,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "subscription_failed" }, { status: 500 });
   }
 
-  const sub: Subscription = {
-    id: upserted.id,
-    userId: upserted.user_id,
-    workId: upserted.work_id,
-    googleCalendarId: upserted.google_calendar_id,
-    mode: upserted.mode,
-    includeSubtitle: upserted.include_subtitle,
-    includeChannel: upserted.include_channel,
-    includeUrl: upserted.include_url,
-    autoSync: upserted.auto_sync,
-    status: upserted.status,
-    createdAt: upserted.created_at,
-  };
-
-  try {
-    const accessToken = await getAccessTokenForSession(session);
-    if (!accessToken) return NextResponse.json({ error: "no_token" }, { status: 401 });
-    const result = await syncSubscription(sub, accessToken, appUrl);
-    return NextResponse.json({ ...result, subscriptionId: sub.id, demo: false });
-  } catch (e) {
-    console.error("[subscriptions.sync]", e);
-    return NextResponse.json({ error: "calendar_write_failed" }, { status: 502 });
-  }
+  return NextResponse.json({
+    created: countFuturePrograms(work.programs),
+    subscriptionId: upserted.id,
+    demo: false,
+  });
 }
 
 export async function GET() {

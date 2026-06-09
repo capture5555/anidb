@@ -214,3 +214,118 @@ export function normalizeSeasonName(name: string | null): string | null {
   if (!name) return null;
   return name.toLowerCase();
 }
+
+// ============================================================
+//  話数別統計（アナリティクス収集用）
+//  フィールド名は introspection で確認済み:
+//  Episode { recordsCount, recordCommentsCount, satisfactionRate }
+//  Work { watchersCount, reviewsCount, satisfactionRate }
+// ============================================================
+
+export interface AnnictEpisodeStat {
+  annictEpisodeId: number;
+  recordsCount: number;
+  recordCommentsCount: number;
+  satisfactionRate: number | null;
+}
+
+export interface AnnictWorkStat {
+  annictWorkId: number;
+  watchersCount: number;
+  reviewsCount: number;
+  satisfactionRate: number | null;
+  episodes: AnnictEpisodeStat[];
+}
+
+const STATS_BY_SEASON = /* GraphQL */ `
+  query StatsBySeason($season: String!, $after: String) {
+    searchWorks(seasons: [$season], orderBy: { field: WATCHERS_COUNT, direction: DESC }, first: 50, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        annictId
+        watchersCount
+        reviewsCount
+        satisfactionRate
+        episodes(first: 100, orderBy: { field: SORT_NUMBER, direction: ASC }) {
+          nodes { annictId recordsCount recordCommentsCount satisfactionRate }
+        }
+      }
+    }
+  }
+`;
+
+/** シーズン内全作品の 話数別記録数/作品ベースライン を取得（GraphQL。失敗時は REST v1 フォールバック） */
+export async function fetchSeasonStats(seasonSlug: string): Promise<AnnictWorkStat[]> {
+  try {
+    const stats: AnnictWorkStat[] = [];
+    let after: string | null = null;
+    for (let i = 0; i < 5; i++) {
+      const data: any = await gql(STATS_BY_SEASON, { season: seasonSlug, after });
+      const conn = data.searchWorks;
+      for (const n of conn.nodes) {
+        stats.push({
+          annictWorkId: n.annictId,
+          watchersCount: n.watchersCount ?? 0,
+          reviewsCount: n.reviewsCount ?? 0,
+          satisfactionRate: n.satisfactionRate ?? null,
+          episodes: (n.episodes?.nodes ?? []).map((e: any) => ({
+            annictEpisodeId: e.annictId,
+            recordsCount: e.recordsCount ?? 0,
+            recordCommentsCount: e.recordCommentsCount ?? 0,
+            satisfactionRate: e.satisfactionRate ?? null,
+          })),
+        });
+      }
+      if (!conn.pageInfo.hasNextPage) break;
+      after = conn.pageInfo.endCursor;
+    }
+    return stats;
+  } catch (e) {
+    console.warn(`[annict] GraphQL stats failed, falling back to REST v1: ${e}`);
+    return fetchSeasonStatsRest(seasonSlug);
+  }
+}
+
+/** REST v1 フォールバック（GraphQL障害時用。episodes はページング取得） */
+async function fetchSeasonStatsRest(seasonSlug: string): Promise<AnnictWorkStat[]> {
+  const token = process.env.ANNICT_TOKEN;
+  if (!token) throw new Error("ANNICT_TOKEN is not set");
+  const stats: AnnictWorkStat[] = [];
+
+  for (let page = 1; page <= 10; page++) {
+    const res = await fetch(
+      `https://api.annict.com/v1/works?filter_season=${seasonSlug}&sort_watchers_count=desc&per_page=50&page=${page}&access_token=${token}`,
+    );
+    if (!res.ok) throw new Error(`Annict REST works failed: ${res.status}`);
+    const json: any = await res.json();
+    const works: any[] = json.works ?? [];
+    for (const w of works) {
+      const episodes: AnnictEpisodeStat[] = [];
+      for (let ep = 1; ep <= 4; ep++) {
+        const er = await fetch(
+          `https://api.annict.com/v1/episodes?filter_work_id=${w.id}&per_page=50&page=${ep}&access_token=${token}`,
+        );
+        if (!er.ok) break;
+        const ej: any = await er.json();
+        for (const e of ej.episodes ?? []) {
+          episodes.push({
+            annictEpisodeId: e.id,
+            recordsCount: e.records_count ?? 0,
+            recordCommentsCount: e.record_comments_count ?? 0,
+            satisfactionRate: e.satisfaction_rate ?? null,
+          });
+        }
+        if ((ej.episodes ?? []).length < 50) break;
+      }
+      stats.push({
+        annictWorkId: w.id,
+        watchersCount: w.watchers_count ?? 0,
+        reviewsCount: w.reviews_count ?? 0,
+        satisfactionRate: null,
+        episodes,
+      });
+    }
+    if (works.length < 50) break;
+  }
+  return stats;
+}

@@ -4,7 +4,7 @@ import type {
   WorkQuery,
   Season,
   ScheduleEntry,
-} from "@/lib/types";
+} from "../types.ts";
 
 /**
  * データ取得の抽象インターフェース。

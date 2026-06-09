@@ -6,7 +6,6 @@ import Link from "next/link";
 interface SubRow {
   id: string;
   work_id: string;
-  google_calendar_id: string;
   mode: string;
   status: string;
   works?: { title: string };
@@ -15,9 +14,13 @@ interface SubRow {
 export default function MyPage() {
   const [state, setState] = useState<"loading" | "demo" | "need-auth" | "ready" | "error">("loading");
   const [subs, setSubs] = useState<SubRow[]>([]);
+  const [feedUrl, setFeedUrl] = useState<string | null>(null);
+  const [feedDemo, setFeedDemo] = useState(false);
   const [target, setTarget] = useState<SubRow | null>(null); // 解除確認中の対象
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [regenConfirm, setRegenConfirm] = useState(false);
 
   const load = async () => {
     try {
@@ -25,9 +28,19 @@ export default function MyPage() {
       if (res.status === 401) return setState("need-auth");
       if (!res.ok) return setState("error");
       const data = await res.json();
-      if (data.demo) return setState("demo");
-      setSubs(data.subscriptions ?? []);
-      setState("ready");
+      if (data.demo) {
+        setState("demo");
+      } else {
+        setSubs(data.subscriptions ?? []);
+        setState("ready");
+      }
+      // 購読URL（デモでもサンプルURLを返す）
+      const feedRes = await fetch("/api/me/feed");
+      if (feedRes.ok) {
+        const feed = await feedRes.json();
+        setFeedUrl(feed.url ?? null);
+        setFeedDemo(Boolean(feed.demo));
+      }
     } catch {
       setState("error");
     }
@@ -37,25 +50,47 @@ export default function MyPage() {
     void load();
   }, []);
 
-  // removeEvents: true=カレンダーからも削除 / false=登録だけ解除
-  const doUnsubscribe = async (removeEvents: boolean) => {
+  const copyUrl = async () => {
+    if (!feedUrl) return;
+    try {
+      await navigator.clipboard.writeText(feedUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setToast("コピーに失敗しました。URLを選択してコピーしてください。");
+      setTimeout(() => setToast(null), 5000);
+    }
+  };
+
+  const regenerate = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/me/feed", { method: "POST" });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setFeedUrl(data.url ?? null);
+      setRegenConfirm(false);
+      setToast("購読URLを再生成しました。Googleカレンダー側も新しいURLで登録し直してください。");
+      setTimeout(() => setToast(null), 7000);
+    } catch {
+      setToast("再生成に失敗しました。もう一度お試しください。");
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doUnsubscribe = async () => {
     if (!target) return;
     setBusy(true);
     try {
-      const res = await fetch(
-        `/api/subscriptions/${target.id}?removeEvents=${removeEvents ? "1" : "0"}`,
-        { method: "DELETE" },
-      );
-      const data = await res.json().catch(() => ({}));
+      const res = await fetch(`/api/subscriptions/${target.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
       const title = target.works?.title ?? "作品";
       setTarget(null);
       await load(); // 一覧を取り直して、本当に消えたか確認
-      setToast(
-        removeEvents
-          ? `「${title}」を解除し、カレンダーから${data.removedEvents ?? 0}件の予定を削除しました`
-          : `「${title}」の登録を解除しました（カレンダーの予定は残しました）`,
-      );
-      setTimeout(() => setToast(null), 5000);
+      setToast(`「${title}」の登録を解除しました。カレンダーの予定も最大24時間程度で自動的に消えます。`);
+      setTimeout(() => setToast(null), 7000);
     } catch {
       setToast("解除に失敗しました。もう一度お試しください。");
       setTimeout(() => setToast(null), 5000);
@@ -69,13 +104,91 @@ export default function MyPage() {
       <p className="kicker">My list</p>
       <h1 className="display text-3xl mt-3">登録した作品</h1>
 
+      {/* カレンダー購読URL */}
+      {feedUrl && (state === "ready" || state === "demo") && (
+        <div className="mt-8 border border-line rounded-[var(--radius-card)] bg-surface p-6">
+          <p className="kicker">カレンダー購読URL</p>
+          {feedDemo && (
+            <p className="mt-2 text-xs text-[var(--color-info)] leading-relaxed">
+              デモモードのサンプルURLです。Google連携を設定すると、あなた専用のURLが発行されます。
+            </p>
+          )}
+          <p className="text-sm text-ink-soft mt-3 leading-relaxed">
+            このURLを一度だけGoogleカレンダーに設定すると、登録した作品の放送予定が自動で反映され続けます。
+            作品を解除すれば予定も自動で消えます（反映はGoogle側の取得タイミング次第で最大24時間程度）。
+          </p>
+          <div className="mt-4 flex items-center gap-2">
+            <input
+              readOnly
+              value={feedUrl}
+              onFocus={(e) => e.currentTarget.select()}
+              className="flex-1 min-w-0 border border-line-strong bg-paper rounded-[var(--radius-card)] px-3 py-2 text-xs text-ink-soft font-mono"
+            />
+            <button
+              onClick={copyUrl}
+              className="shrink-0 bg-ink text-paper px-4 py-2 rounded-[var(--radius-card)] text-sm hover:opacity-90 transition"
+            >
+              {copied ? "コピーしました" : "コピー"}
+            </button>
+          </div>
+          <details className="mt-4">
+            <summary className="text-sm text-ink-soft cursor-pointer select-none hover:text-ink">
+              初回の設定手順（Googleカレンダー）
+            </summary>
+            <ol className="list-decimal pl-5 mt-3 space-y-1.5 text-sm text-ink-soft leading-relaxed">
+              <li>上のURLをコピーする</li>
+              <li>
+                PCブラウザでGoogleカレンダーを開き、左下の「他のカレンダー」横の「＋」→
+                <strong>「URLで追加」</strong>を選ぶ
+              </li>
+              <li>URLを貼り付けて「カレンダーを追加」を押す</li>
+              <li>「アニメ放送カレンダー」が一覧に追加されれば完了（スマホにも自動で同期されます）</li>
+            </ol>
+          </details>
+          {!feedDemo && (
+            <div className="mt-4 pt-4 border-t border-line">
+              {regenConfirm ? (
+                <div className="text-sm">
+                  <p className="text-ink-soft leading-relaxed">
+                    URLを再生成すると、いまGoogleカレンダーに設定済みのURLは無効になり、再設定が必要です。よろしいですか？
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => void regenerate()}
+                      disabled={busy}
+                      className="bg-accent text-paper px-4 py-1.5 rounded-[var(--radius-card)] text-sm hover:bg-[var(--color-accent-soft)] transition disabled:opacity-40"
+                    >
+                      再生成する
+                    </button>
+                    <button
+                      onClick={() => setRegenConfirm(false)}
+                      disabled={busy}
+                      className="border border-line-strong px-4 py-1.5 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition disabled:opacity-40"
+                    >
+                      やめる
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setRegenConfirm(true)}
+                  className="text-xs text-muted hover:text-accent transition"
+                >
+                  URLが他人に知られた場合は再生成できます →
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-8">
         {state === "loading" && <p className="text-muted text-sm">読み込み中…</p>}
 
         {state === "need-auth" && (
           <div className="border border-line rounded-[var(--radius-card)] p-6 bg-surface">
             <p className="text-ink-soft text-sm leading-relaxed">
-              登録した作品を表示するには、Googleでのログインが必要です。
+              登録した作品を表示するには、Googleでのログイン（本人確認のみ・カレンダー権限は不要）が必要です。
             </p>
             <a
               href="/api/auth/google/start?returnTo=/me"
@@ -101,7 +214,7 @@ export default function MyPage() {
           <div className="py-16 text-center">
             <p className="display text-xl">まだ登録がありません</p>
             <p className="text-sm text-muted mt-2">
-              作品ページの「Googleカレンダーへ追加」から登録できます。
+              作品ページの「カレンダーに登録」から登録できます。
             </p>
             <Link
               href="/"
@@ -138,7 +251,7 @@ export default function MyPage() {
         {state === "error" && <p className="text-accent text-sm">読み込みに失敗しました。</p>}
       </div>
 
-      {/* 解除確認ダイアログ：カレンダーからも削除するか聞く */}
+      {/* 解除確認ダイアログ */}
       {target && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/30 px-3"
@@ -151,23 +264,17 @@ export default function MyPage() {
             <p className="kicker">登録の解除</p>
             <h2 className="display text-lg mt-1 leading-snug">{target.works?.title}</h2>
             <p className="text-sm text-ink-soft mt-3 leading-relaxed">
-              この作品の追跡を解除します。すでにGoogleカレンダーへ登録済みの予定をどうしますか？
+              この作品の登録を解除します。購読フィードから外れるため、Googleカレンダーに表示中の予定も
+              <strong>最大24時間程度で自動的に消えます</strong>（手動での削除は不要です）。
             </p>
 
             <div className="mt-5 space-y-2">
               <button
-                onClick={() => void doUnsubscribe(true)}
+                onClick={() => void doUnsubscribe()}
                 disabled={busy}
                 className="w-full bg-accent text-paper py-2.5 rounded-[var(--radius-card)] text-sm font-medium hover:bg-[var(--color-accent-soft)] transition disabled:opacity-40"
               >
-                カレンダーの予定も削除する
-              </button>
-              <button
-                onClick={() => void doUnsubscribe(false)}
-                disabled={busy}
-                className="w-full border border-line-strong py-2.5 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition disabled:opacity-40"
-              >
-                登録だけ解除（予定はカレンダーに残す）
+                登録を解除する
               </button>
               <button
                 onClick={() => setTarget(null)}

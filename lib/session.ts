@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { encryptWithKey, decryptWithKey, getSessionKey } from "./crypto";
+import { encryptWithKey, decryptWithKey, getSessionKey } from "./crypto.ts";
 
 const COOKIE = "anidb_session";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30日
@@ -7,11 +7,6 @@ const MAX_AGE = 60 * 60 * 24 * 30; // 30日
 export interface SessionData {
   userId: string; // Supabase上のユーザーID（demoではgoogle_subやemailを流用）
   email: string;
-  /**
-   * デモ/Supabase未設定時に限り、リフレッシュトークンをセッションに保持する。
-   * Supabase利用時はDB(google_accounts)に保存し、ここには入れない。
-   */
-  refreshToken?: string;
 }
 
 export async function getSession(): Promise<SessionData | null> {

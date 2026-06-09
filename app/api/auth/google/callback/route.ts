@@ -24,13 +24,9 @@ export async function GET(req: NextRequest) {
   try {
     const token = await exchangeCode(code);
     const user = await fetchUserInfo(token.access_token);
-    const { userId, storeInSession } = await saveGoogleAccount(user, token.refresh_token);
+    const { userId } = await saveGoogleAccount(user);
 
-    await setSession({
-      userId,
-      email: user.email,
-      refreshToken: storeInSession ? token.refresh_token : undefined,
-    });
+    await setSession({ userId, email: user.email });
 
     return NextResponse.redirect(`${appUrl}${returnTo}`);
   } catch (e) {

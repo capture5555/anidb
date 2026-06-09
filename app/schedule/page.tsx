@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "@/components/WorkCover";
-import { AddToCalendar } from "@/components/AddToCalendar";
+import { SubscribeButton } from "@/components/SubscribeButton";
 import { airSlot, WEEKDAY_LABELS, formatPopularity } from "@/lib/format";
 import type { ScheduleEntry } from "@/lib/types";
 
@@ -30,7 +30,7 @@ export default async function SchedulePage() {
         <p className="kicker">Weekly schedule</p>
         <h1 className="display text-3xl sm:text-[2.4rem] leading-tight mt-3">番組表</h1>
         <p className="text-ink-soft mt-3 max-w-xl text-[0.95rem]">
-          放送中のTVアニメを曜日・時間順に。各作品の「追加」からそのままGoogleカレンダーへ登録できます。
+          放送中のTVアニメを曜日・時間順に。各作品の「登録」からそのまま選択リストへ追加できます（カレンダーへは購読URL経由で自動反映）。
           （深夜帯は慣習に合わせて前日の25:00〜表記）
         </p>
       </section>
@@ -77,7 +77,7 @@ export default async function SchedulePage() {
                       </p>
                     </div>
                     <div className="shrink-0">
-                      <AddToCalendar workId={e.workId} workTitle={e.title} compact />
+                      <SubscribeButton workId={e.workId} workTitle={e.title} compact />
                     </div>
                   </li>
                 ))}
