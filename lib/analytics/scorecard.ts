@@ -13,7 +13,8 @@
  * すべて各サービス利用者を母数とした参考値であり、テレビ視聴率ではない。
  */
 import { getAdminClient } from "../supabase/admin.ts";
-import { seasonOf } from "../season.ts";
+import { seasonOf, SEASON_LABELS } from "../season.ts";
+import type { Season } from "../types.ts";
 
 const chunk = <T,>(arr: T[], size: number): T[][] => {
   const out: T[][] = [];
@@ -55,9 +56,23 @@ export interface ScorecardWork {
   densityDev: number;
   retentionDev: number | null;
   satisfactionDev: number | null;
+  scoreDev: number | null; // 評価スコアの偏差値（score欠損時はnull）
   overall: number; // 総合偏差値
   darkhorse: number; // ダークホース指数 = 認知順位 - 熱量順位（+ほど語られている）
   quadrant: Quadrant;
+  // バズ vs 評価ギャップ = 認知偏差値 - 評価偏差値（+話題先行/-評価先行）。score欠損時はnull
+  buzzRatingGap: number | null;
+  // フラグ
+  sleeper: boolean; // 高評価だが認知が低い＝過小評価/発掘候補
+  overhyped: boolean; // 認知は高いが評価が伴わない＝話題先行
+  // パーセンタイル（上位X%。値が無い指標はnull）
+  overallPercentile: number; // 総合の上位X%
+  percentiles: {
+    awareness: number | null;
+    passion: number | null;
+    satisfaction: number | null;
+    score: number | null;
+  };
 }
 
 export interface CoolScorecard {
@@ -66,6 +81,72 @@ export interface CoolScorecard {
   works: ScorecardWork[]; // 総合偏差値の降順
   totalAiring: number; // 今期の対象作品総数
   withData: number; // うち分析できた作品数
+}
+
+export interface WorkCohortPosition {
+  seasonLabel: string; // 例: "2026年 春"
+  cohortSize: number; // クール内で分析できた作品数
+  work: ScorecardWork; // この作品のスコアカード
+  commentary: string; // 意思決定向けの一言（日本語）
+}
+
+/* ----------------------------------------------------------------- 純関数（DB不要・単体テスト可能） */
+
+/** 順位(1=最上位)とクール内作品数 N から「上位X%」を返す。rank/Nが不正ならnull。 */
+export function pctRankFromRank(rank: number | null | undefined, n: number): number | null {
+  if (rank == null || rank < 1 || n < 1) return null;
+  return Math.round((1 - (rank - 1) / n) * 100);
+}
+
+/** バズ vs 評価ギャップ（認知偏差値 - 評価偏差値）。+ほど話題先行、-ほど評価先行。 */
+export function buzzRatingGapOf(awarenessDev: number, scoreDev: number | null): number | null {
+  if (scoreDev == null) return null;
+  return Math.round((awarenessDev - scoreDev) * 10) / 10;
+}
+
+/** 高評価だが認知が低い＝過小評価（スリーパー）。 */
+export function isSleeper(awarenessDev: number, scoreDev: number | null): boolean {
+  return scoreDev != null && scoreDev >= 57 && awarenessDev <= 45;
+}
+
+/** 認知は高いが評価が伴わない＝話題先行。 */
+export function isOverhyped(awarenessDev: number, scoreDev: number | null): boolean {
+  return scoreDev != null && awarenessDev >= 57 && scoreDev <= 45;
+}
+
+/** フラグ・象限・ギャップから意思決定向けの一言を生成する。 */
+export function cohortCommentary(w: {
+  awarenessPct: number | null;
+  passionPct: number | null;
+  scorePct: number | null;
+  sleeper: boolean;
+  overhyped: boolean;
+  quadrant: Quadrant;
+  darkhorse: number;
+}): string {
+  const aw = w.awarenessPct;
+  const sc = w.scorePct;
+  const pa = w.passionPct;
+  if (w.sleeper && aw != null && sc != null) {
+    return `評価は上位${sc}%だが認知は上位${aw}%にとどまる。"過小評価（スリーパー）"の可能性。発掘・先行投資の候補。`;
+  }
+  if (w.overhyped && aw != null && sc != null) {
+    return `認知は上位${aw}%だが評価は上位${sc}%。"話題先行"型で、初速以降の伸びは慎重に見る。`;
+  }
+  if (w.quadrant === "royal" && aw != null && pa != null) {
+    return `認知・熱量ともに上位${Math.min(aw, pa)}%圏内の"王道ヒット型"。マス施策・大量展開が効く。`;
+  }
+  if (w.quadrant === "wordofmouth" && pa != null) {
+    return `熱量は上位${pa}%と高いが認知はこれから。"口コミ型・ダークホース候補"。早期に張ると先行者利益。`;
+  }
+  if (w.quadrant === "fastburn" && aw != null) {
+    return `認知は上位${aw}%だが熱量・定着が弱い"初速一発型"。話題は最初だけになりやすく短期施策向き。`;
+  }
+  // niche
+  if (pa != null) {
+    return `認知・熱量とも控えめだがコアは濃い"ニッチ深掘り型"。コア層向けの有料施策が向く。`;
+  }
+  return `クール内ポジションを相対評価。各指標は偏差値（平均50）。`;
 }
 
 /** 配列を偏差値（mean50/sd10）に変換するクロージャを返す */
@@ -89,24 +170,70 @@ function rankMap(items: { id: string; value: number }[]): Map<string, number> {
 
 const MIN_PASSION = 300; // この未満の実況コメントしか無い作品は対象外（ノイズ）
 
-/** 今期作品のクール診断（偏差値カルテ＋4象限）。 */
+// works から偏差値カルテに必要な列だけを抜いた行
+interface ScorecardWorkRow {
+  id: string;
+  title: string;
+  poster_url: string | null;
+  key_visual_url: string | null;
+  popularity: number | null;
+  anilist_score: number | null;
+  anilist_popularity: number | null;
+  mal_score: number | null;
+  mal_members: number | null;
+}
+
+const WORK_COLUMNS =
+  "id, title, poster_url, key_visual_url, popularity, anilist_score, anilist_popularity, mal_score, mal_members";
+
+/** 今期作品のクール診断（偏差値カルテ＋4象限）。挙動は従来どおり。 */
 export async function getCoolScorecard(): Promise<CoolScorecard> {
   const db = getAdminClient();
   const { year, season } = seasonOf(new Date());
 
-  // 1) 今期の放送中TV作品
+  // 今期の放送中TV作品（従来の選定基準を維持）
   const { data: works } = await db
     .from("works")
-    .select(
-      "id, title, poster_url, key_visual_url, popularity, anilist_score, anilist_popularity, mal_score, mal_members",
-    )
+    .select(WORK_COLUMNS)
     .eq("status", "airing")
     .or("media.neq.movie,media.is.null");
-  const workList = works ?? [];
+
+  return buildScorecard(year, season, (works ?? []) as ScorecardWorkRow[]);
+}
+
+/**
+ * 任意のクール（year/season）でクール診断を計算する。
+ * 過去クールも含め season_year/season_name でTV作品を抽出して相対化する。
+ */
+export async function computeSeasonScorecard(year: number, season: Season): Promise<CoolScorecard> {
+  const db = getAdminClient();
+  const { year: curYear, season: curSeason } = seasonOf(new Date());
+
+  // 現行クールは getCoolScorecard と同じ選定（放送中）に委譲して挙動を完全一致させる
+  if (year === curYear && season === curSeason) {
+    return getCoolScorecard();
+  }
+
+  const { data: works } = await db
+    .from("works")
+    .select(WORK_COLUMNS)
+    .eq("season_year", year)
+    .eq("season_name", season)
+    .or("media.neq.movie,media.is.null");
+
+  return buildScorecard(year, season, (works ?? []) as ScorecardWorkRow[]);
+}
+
+/** 与えられたクール作品集合から偏差値カルテを構築する（DBアクセスを伴う共通コア）。 */
+async function buildScorecard(
+  year: number,
+  season: Season,
+  workList: ScorecardWorkRow[],
+): Promise<CoolScorecard> {
+  const db = getAdminClient();
   if (workList.length === 0) return { year, season, works: [], totalAiring: 0, withData: 0 };
 
   const workIds = workList.map((w) => w.id);
-  const workMeta = new Map(workList.map((w) => [w.id, w]));
 
   // 2) 実況コメント（collected log）→ 番組→作品・話数へ
   const { data: logs } = await db
@@ -217,9 +344,21 @@ export async function getCoolScorecard(): Promise<CoolScorecard> {
   const retentionDev = deviationFn(retentionVals);
   const satVals = raws.filter((r) => r.satisfaction != null).map((r) => r.satisfaction!);
   const satDev = deviationFn(satVals);
+  const scoreVals = raws.filter((r) => r.score != null).map((r) => r.score!);
+  const scoreDevFn = deviationFn(scoreVals);
 
+  const n = raws.length;
   const awRank = rankMap(raws.map((r) => ({ id: r.workId, value: r.awareness })));
   const paRank = rankMap(raws.map((r) => ({ id: r.workId, value: r.passion })));
+  // 満足度・評価は欠損があるため、値を持つ作品のみで順位付け（パーセンタイル用）
+  const satRank = rankMap(
+    raws.filter((r) => r.satisfaction != null).map((r) => ({ id: r.workId, value: r.satisfaction! })),
+  );
+  const satN = satRank.size;
+  const scRank = rankMap(
+    raws.filter((r) => r.score != null).map((r) => ({ id: r.workId, value: r.score! })),
+  );
+  const scN = scRank.size;
 
   const scored: ScorecardWork[] = raws.map((r) => {
     const aDev = awarenessDev(log(r.awareness));
@@ -227,6 +366,7 @@ export async function getCoolScorecard(): Promise<CoolScorecard> {
     const dDev = densityDev(log(r.density));
     const rDev = r.retention != null ? retentionDev(r.retention) : null;
     const sDev = r.satisfaction != null ? satDev(r.satisfaction) : null;
+    const scDev = r.score != null ? scoreDevFn(r.score) : null;
 
     // 総合偏差値: 認知0.3 / 熱量0.3 / 定着0.2 / 満足0.2（欠損は重みを再正規化）
     const parts: { v: number; w: number }[] = [
@@ -254,12 +394,66 @@ export async function getCoolScorecard(): Promise<CoolScorecard> {
       densityDev: dDev,
       retentionDev: rDev,
       satisfactionDev: sDev,
+      scoreDev: scDev,
       overall,
       darkhorse: (awRank.get(r.workId) ?? 0) - (paRank.get(r.workId) ?? 0),
       quadrant,
+      buzzRatingGap: buzzRatingGapOf(aDev, scDev),
+      sleeper: isSleeper(aDev, scDev),
+      overhyped: isOverhyped(aDev, scDev),
+      overallPercentile: 0, // 総合順位確定後に下で設定
+      percentiles: {
+        awareness: pctRankFromRank(awRank.get(r.workId), n),
+        passion: pctRankFromRank(paRank.get(r.workId), n),
+        satisfaction: pctRankFromRank(satRank.get(r.workId), satN),
+        score: pctRankFromRank(scRank.get(r.workId), scN),
+      },
     };
   });
 
   scored.sort((a, b) => b.overall - a.overall);
+  // 総合順（降順）が確定したので総合パーセンタイルを設定
+  scored.forEach((w, i) => {
+    w.overallPercentile = pctRankFromRank(i + 1, scored.length) ?? 0;
+  });
   return { year, season, works: scored, totalAiring: workList.length, withData: scored.length };
+}
+
+/**
+ * 単一作品のクール内ポジションを返す。
+ * 作品の season_year/season_name のクールが算出可能で、その作品が母数に入っていれば返す。
+ * 実況データ不足等で算出できない場合は null。
+ */
+export async function getWorkCohortPosition(workId: string): Promise<WorkCohortPosition | null> {
+  const db = getAdminClient();
+  const { data: work } = await db
+    .from("works")
+    .select("season_year, season_name")
+    .eq("id", workId)
+    .maybeSingle();
+  if (!work || work.season_year == null || work.season_name == null) return null;
+
+  const card = await computeSeasonScorecard(
+    work.season_year as number,
+    work.season_name as Season,
+  );
+  const me = card.works.find((w) => w.workId === workId);
+  if (!me) return null;
+
+  const commentary = cohortCommentary({
+    awarenessPct: me.percentiles.awareness,
+    passionPct: me.percentiles.passion,
+    scorePct: me.percentiles.score,
+    sleeper: me.sleeper,
+    overhyped: me.overhyped,
+    quadrant: me.quadrant,
+    darkhorse: me.darkhorse,
+  });
+
+  return {
+    seasonLabel: `${card.year}年 ${SEASON_LABELS[card.season]}`,
+    cohortSize: card.withData,
+    work: me,
+    commentary,
+  };
 }
