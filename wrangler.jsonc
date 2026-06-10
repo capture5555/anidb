@@ -17,11 +17,11 @@
   },
   "vars": {
     // NEXT_PUBLIC_* はビルド時にも参照されるため、デプロイ用GitHub Actionsの env と揃えること
-    "NEXT_PUBLIC_APP_URL": "https://anime.trifstudio.com",
+    "NEXT_PUBLIC_APP_URL": "https://anidb.web-9d7.workers.dev",
     "DATA_PROVIDER": "supabase",
-    "NEXT_PUBLIC_SUPABASE_URL": "",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "",
-    "GOOGLE_CLIENT_ID": "",
-    "GOOGLE_REDIRECT_URI": "https://anime.trifstudio.com/api/auth/google/callback"
+    "NEXT_PUBLIC_SUPABASE_URL": "https://mvfsxfmdpnhpwoddtlsf.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_g3bvGdS5goYnvM7SweyDvQ_y36qdGJW",
+    "GOOGLE_CLIENT_ID": "607161185952-514t5fngmus2kcs01o354gmtqvgvii4j.apps.googleusercontent.com",
+    "GOOGLE_REDIRECT_URI": "https://anidb.web-9d7.workers.dev/api/auth/google/callback"
   }
 }
