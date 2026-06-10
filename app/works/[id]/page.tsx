@@ -151,9 +151,15 @@ export default async function WorkDetailPage({
           {/* 視聴分析（実況の盛り上がり・継続率・全話） */}
           {analysis && (
             <div className="space-y-5">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base font-black text-accent">視聴分析</h2>
                 <span className="text-[0.7rem] text-muted">ニコニコ実況・Annict 由来の参考値</span>
+                <Link
+                  href={`/analytics/works/${work.id}`}
+                  className="ml-auto text-xs font-bold text-primary hover:underline underline-offset-2 whitespace-nowrap"
+                >
+                  詳細分析ページへ →
+                </Link>
               </div>
               {cohort && <CohortPositionPanel position={cohort} />}
               <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
