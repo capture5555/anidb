@@ -17,8 +17,8 @@ export interface DataProvider {
   getWork(id: string): Promise<WorkDetail | null>;
   listSeasons(): Promise<{ slug: string; year: number; season: Season; count: number }[]>;
   listGenres(): Promise<string[]>;
-  /** ミニ番組表：放送中TV作品の次回放送を返す */
-  getSchedule(): Promise<ScheduleEntry[]>;
+  /** ミニ番組表：放送中TV作品の次回放送を返す（地域の放送局のみ） */
+  getSchedule(region?: Region): Promise<ScheduleEntry[]>;
   /** 直近の放送（この後の放送）を早い順に返す（1作品1件・地域の代表局を優先） */
   getUpcomingBroadcasts(limit: number, region?: Region): Promise<ScheduleEntry[]>;
 }

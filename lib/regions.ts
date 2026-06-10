@@ -26,8 +26,8 @@ export const REGION_NOTES: Record<Region, string> = {
   bs: "BS11・AT-X・ABEMA・dアニメストア など全国系を優先",
 };
 
-// 全地域共通で、地域局の後ろに付ける全国系（BS/CS/配信/NHK）の優先順。
-const NATIONWIDE_TAIL = [
+// 全国放送（BS/CS/NHK）。地域局の後ろに付ける。これらは「放送局」として番組表に出す。
+const BROADCAST_TAIL = [
   "NHK総合",
   "NHK Eテレ",
   "NHK",
@@ -36,14 +36,31 @@ const NATIONWIDE_TAIL = [
   "BSフジ",
   "BS日テレ",
   "BS朝日",
+  "BS-TBS",
   "BSテレ東",
+  "BS12",
   "BS松竹東急",
   "WOWOW",
+];
+
+// ネット配信（放送局ではない）。カレンダーの最終フォールバックには使うが、
+// 「この後の放送」「番組表」には出さない。
+const STREAMING = [
   "ABEMA",
   "dアニメストア",
   "Amazon",
   "Netflix",
+  "Disney",
+  "Hulu",
+  "U-NEXT",
+  "FOD",
+  "DMM",
+  "Lemino",
+  "バンダイチャンネル",
+  "ニコニコ",
 ];
+
+const NATIONWIDE_TAIL = [...BROADCAST_TAIL, ...STREAMING];
 
 // 各地域で優先する地上波局（上にあるほど優先）。
 const REGION_LOCALS: Record<Region, string[]> = {
@@ -102,6 +119,17 @@ export function channelRank(name: string | null | undefined, region: Region): nu
   if (i >= 0) return i;
   // リストに無い地方局など。全国系より後ろ・名前未定より前。
   return 9000;
+}
+
+/**
+ * 「この後の放送」「番組表」に表示してよいチャンネルか。
+ * = その地域の地上波局 または 全国放送(BS/CS/NHK)。
+ * ネット配信（ABEMA等）と、地域外の地方ローカル局（優先リスト未掲載）は false。
+ */
+export function isDisplayChannel(name: string | null | undefined, region: Region): boolean {
+  if (!name) return false;
+  const limit = REGION_LOCALS[region].length + BROADCAST_TAIL.length;
+  return channelRank(name, region) < limit;
 }
 
 export function parseRegion(value: string | null | undefined): Region {

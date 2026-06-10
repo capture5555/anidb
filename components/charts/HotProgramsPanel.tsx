@@ -99,7 +99,7 @@ export function HotProgramsPanel({ programs }: { programs: HotProgramInput[] }) 
             </Link>
           </div>
         </div>
-        <MinuteHeatChart points={cur.points} peaks={cur.peaks} />
+        <MinuteHeatChart points={cur.points} peaks={cur.peaks} programId={cur.programId} />
       </div>
     </div>
   );

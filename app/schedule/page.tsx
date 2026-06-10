@@ -1,9 +1,12 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "@/components/WorkCover";
 import { SubscribeButton } from "@/components/SubscribeButton";
+import { RegionSelector } from "@/components/RegionSelector";
 import { airSlot, WEEKDAY_LABELS, formatPopularity } from "@/lib/format";
+import { parseRegion, REGION_COOKIE, REGION_LABELS } from "@/lib/regions";
 import type { ScheduleEntry } from "@/lib/types";
 
 export const metadata = { title: "番組表" };
@@ -21,8 +24,9 @@ const DAY_COLOR: Record<number, string> = {
 };
 
 export default async function SchedulePage() {
+  const region = parseRegion((await cookies()).get(REGION_COOKIE)?.value);
   const provider = await getDataProvider();
-  const entries = await provider.getSchedule();
+  const entries = await provider.getSchedule(region);
 
   const byDay = new Map<number, (ScheduleEntry & { slotLabel: string; sortKey: number })[]>();
   for (const e of entries) {
@@ -36,10 +40,15 @@ export default async function SchedulePage() {
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
       <div className="pt-8 mb-5">
-        <h1 className="text-xl sm:text-2xl font-black text-ink">週間番組表</h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-xl sm:text-2xl font-black text-ink">週間番組表</h1>
+          <div className="ml-auto">
+            <RegionSelector initial={region} />
+          </div>
+        </div>
         <p className="text-sm text-ink-soft mt-1.5">
-          放送中のTVアニメを曜日・時間順に。「登録」からカレンダー購読リストへ追加できます。
-          深夜帯は前日の25:00〜表記です。
+          {REGION_LABELS[region]}で放送されるTVアニメ（地上波・BS/CS）を曜日・時間順に。配信は含みません。
+          「登録」からカレンダー購読リストへ追加できます。深夜帯は前日の25:00〜表記です。
         </p>
       </div>
 

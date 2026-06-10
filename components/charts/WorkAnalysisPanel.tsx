@@ -117,7 +117,7 @@ export function EpisodeHeatSelector({ episodes }: { episodes: EpisodeHeatInput[]
         {cur.channelName && `（${cur.channelName}）`} ・ {fmtDate(cur.startAt)}放送 ・ 計
         {cur.totalComments.toLocaleString()}コメント
       </p>
-      <MinuteHeatChart points={cur.points} peaks={cur.peaks} />
+      <MinuteHeatChart points={cur.points} peaks={cur.peaks} programId={cur.programId} />
     </div>
   );
 }

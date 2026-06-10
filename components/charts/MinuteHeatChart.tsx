@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 /**
  * 分単位コメント数の積み上げ棒グラフ（リアクション分類つき）＋ピーク代表コメント。
@@ -31,14 +31,49 @@ const W = 760;
 const H = 300;
 const PAD = { top: 26, right: 16, bottom: 30, left: 44 };
 
+interface MinuteComments {
+  minute: number;
+  loading: boolean;
+  total: number;
+  truncated: boolean;
+  comments: { text: string; sec: number }[];
+}
+
 export function MinuteHeatChart({
   points,
   peaks,
+  programId,
 }: {
   points: MinutePointInput[];
   peaks: PeakInput[];
+  /** 指定すると、棒をクリックでその分の実況コメントを表示できる */
+  programId?: string;
 }) {
   const [tip, setTip] = useState<{ x: number; y: number; minute: number } | null>(null);
+  const [sel, setSel] = useState<MinuteComments | null>(null);
+
+  const openMinute = useCallback(
+    async (minute: number) => {
+      if (!programId) return;
+      setSel({ minute, loading: true, total: 0, truncated: false, comments: [] });
+      try {
+        const res = await fetch(
+          `/api/analytics/minute-comments?programId=${encodeURIComponent(programId)}&minute=${minute}`,
+        );
+        const data = await res.json();
+        setSel({
+          minute,
+          loading: false,
+          total: data.total ?? 0,
+          truncated: Boolean(data.truncated),
+          comments: data.comments ?? [],
+        });
+      } catch {
+        setSel({ minute, loading: false, total: 0, truncated: false, comments: [] });
+      }
+    },
+    [programId],
+  );
 
   if (points.length === 0) return null;
 
@@ -109,15 +144,28 @@ export function MinuteHeatChart({
             }
             const otherH = Math.max(0, yScale(p.total) - segs.reduce((a, s) => a + s.h, 0));
             const isPeak = peakMinutes.has(p.minute);
+            const isSel = sel?.minute === p.minute;
             return (
               <g
                 key={p.minute}
+                style={{ cursor: programId ? "pointer" : "default" }}
                 onMouseEnter={(e) => {
                   const rect = (e.currentTarget as SVGElement).closest("svg")!.getBoundingClientRect();
                   setTip({ x: (x(p.minute) / W) * rect.width, y: 30, minute: p.minute });
                 }}
                 onMouseLeave={() => setTip(null)}
+                onClick={() => openMinute(p.minute)}
               >
+                {isSel && (
+                  <rect
+                    x={x(p.minute) - barW / 2 - 1.5}
+                    y={PAD.top}
+                    width={barW + 3}
+                    height={innerH}
+                    fill="#2f6fdb"
+                    opacity={0.1}
+                  />
+                )}
                 {/* 当たり判定を広く */}
                 <rect x={x(p.minute) - barW / 2 - 1} y={PAD.top} width={barW + 2} height={innerH} fill="transparent" />
                 {/* その他（未分類）が一番下 */}
@@ -150,6 +198,51 @@ export function MinuteHeatChart({
           })}
         </svg>
       </div>
+
+      {programId && (
+        <p className="text-[0.7rem] text-muted mt-1">
+          棒をクリックすると、その分に流れた実況コメントが見られます。
+        </p>
+      )}
+
+      {/* 選択した分のコメント一覧 */}
+      {programId && sel && (
+        <div className="mt-3 rounded-lg border border-line bg-paper/50 p-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-bold text-ink">
+              {sel.minute}分ごろのコメント
+              {!sel.loading && (
+                <span className="text-muted font-normal ml-1.5">
+                  {sel.total.toLocaleString()}件{sel.truncated && "以上"}
+                </span>
+              )}
+            </p>
+            <button
+              onClick={() => setSel(null)}
+              className="text-muted hover:text-ink text-sm leading-none"
+              aria-label="閉じる"
+            >
+              ×
+            </button>
+          </div>
+          {sel.loading ? (
+            <p className="text-xs text-muted py-3 text-center">読み込み中…</p>
+          ) : sel.comments.length === 0 ? (
+            <p className="text-xs text-muted py-3 text-center">この分のコメントは記録されていません。</p>
+          ) : (
+            <ul className="max-h-56 overflow-y-auto space-y-0.5 pr-1">
+              {sel.comments.map((c, i) => (
+                <li key={i} className="text-xs text-ink-soft flex gap-2 leading-relaxed">
+                  <span className="text-muted tabular-nums shrink-0 w-8 text-right">
+                    {sel.minute}:{String(c.sec).padStart(2, "0")}
+                  </span>
+                  <span className="min-w-0 break-words">{c.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* ツールチップ */}
       {tipPoint && tip && (

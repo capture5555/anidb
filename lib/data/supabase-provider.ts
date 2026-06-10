@@ -9,7 +9,7 @@ import type {
 } from "../types.ts";
 import { nextSeason, seasonOf, seasonSlug } from "../season.ts";
 import { airSlot } from "../format.ts";
-import { channelRank, DEFAULT_REGION, type Region } from "../regions.ts";
+import { channelRank, isDisplayChannel, DEFAULT_REGION, type Region } from "../regions.ts";
 import type { ScheduleEntry } from "../types.ts";
 
 const CH_PRIORITY = ["TOKYO MX", "テレビ東京", "テレビ朝日", "日本テレビ", "TBS", "フジテレビ", "NHK", "BS11", "AT-X"];
@@ -181,7 +181,7 @@ export class SupabaseDataProvider implements DataProvider {
     return (data ?? []).map((g: any) => g.name);
   }
 
-  async getSchedule(): Promise<ScheduleEntry[]> {
+  async getSchedule(region: Region = DEFAULT_REGION): Promise<ScheduleEntry[]> {
     const now = new Date();
     const nowIso = now.toISOString();
     const horizon = new Date(now.getTime() + 8 * 86400000).toISOString();
@@ -198,17 +198,20 @@ export class SupabaseDataProvider implements DataProvider {
       .limit(8000);
     if (error) throw error;
 
-    // 作品ごとに「最も早い放送（同時刻ならキー局）」を代表として1件に集約（映画は除外）
+    // 作品ごとに「地域の代表局で最も早い放送」を代表として1件に集約（映画・配信・地域外ローカルは除外）
     const byWork = new Map<string, any>();
     for (const p of data ?? []) {
       if ((p as any).works.media === "movie") continue;
+      if (!isDisplayChannel((p as any).channels?.name ?? null, region)) continue;
       const id = (p as any).works.id;
       const cur = byWork.get(id);
       if (!cur) {
         byWork.set(id, p);
       } else if (
         p.start_at < cur.start_at ||
-        (p.start_at === cur.start_at && chRank((p as any).channels?.name) < chRank(cur.channels?.name))
+        (p.start_at === cur.start_at &&
+          channelRank((p as any).channels?.name ?? null, region) <
+            channelRank(cur.channels?.name ?? null, region))
       ) {
         byWork.set(id, p);
       }
@@ -245,6 +248,8 @@ export class SupabaseDataProvider implements DataProvider {
     const rankByWork = new Map<string, number>();
     for (const p of (data ?? []) as any[]) {
       if (p.works.media === "movie") continue;
+      // ネット配信・地域外ローカル局は「この後の放送」に出さない
+      if (!isDisplayChannel(p.channels?.name ?? null, region)) continue;
       const id = p.works.id as string;
       const rank = channelRank(p.channels?.name ?? null, region);
       const prevRank = rankByWork.get(id);

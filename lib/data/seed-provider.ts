@@ -111,7 +111,7 @@ export class SeedDataProvider implements DataProvider {
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ja"));
   }
 
-  async getSchedule(): Promise<ScheduleEntry[]> {
+  async getSchedule(_region?: Region): Promise<ScheduleEntry[]> {
     const now = Date.now();
     const entries: ScheduleEntry[] = [];
     for (const w of SEED_WORKS) {
