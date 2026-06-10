@@ -31,6 +31,8 @@ import {
   type ScorecardWork,
   type Quadrant,
 } from "@/lib/analytics/scorecard";
+import { seasonSummary, studioInsight, vaInsight, genreOpportunity } from "@/lib/analytics/insights";
+import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
 import { QuadrantScatter } from "@/components/charts/QuadrantScatter";
@@ -450,6 +452,9 @@ async function ScorecardSection() {
           認知規模＝Annictウォッチャー数、熱量＝ニコニコ実況のコメント総数を代替指標としています。
           検索量・SNS投稿量・タイムシフト比率は取得できないため算出していません。テレビ視聴率ではありません。
         </p>
+        <div className="mt-4">
+          <AutoInsight lines={seasonSummary(card)} />
+        </div>
       </section>
 
       {/* 散布図 */}
@@ -679,6 +684,11 @@ async function PeopleSection() {
 
   return (
     <div className="space-y-5">
+      {/* 声優インサイト */}
+      {(() => {
+        const vi = vaInsight(vas);
+        return vi ? <AutoInsight lines={[vi]} /> : null;
+      })()}
       {/* 声優スコアカード */}
       <section className="card p-5 sm:p-6">
         <div className="flex items-start justify-between gap-3 mb-1">
@@ -914,6 +924,10 @@ async function IndustrySection({ period }: { period?: string }) {
       </div>
 
       {/* スタジオ・スコアカード */}
+      {(() => {
+        const si = studioInsight(scorecards);
+        return si ? <AutoInsight lines={[si]} /> : null;
+      })()}
       <StudioScorecardCard scorecards={scorecards} />
 
       {/* 高評価ランキング */}
@@ -951,6 +965,10 @@ async function IndustrySection({ period }: { period?: string }) {
       </Card>
 
       {/* ジャンル動向 */}
+      {(() => {
+        const go = genreOpportunity(genreInsights);
+        return go ? <AutoInsight lines={[go]} /> : null;
+      })()}
       <GenreTrendsCard insights={genreInsights} />
 
       {/* シーズン別本数推移 */}
