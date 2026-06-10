@@ -1,7 +1,13 @@
 import type { WorkAnalysis } from "@/lib/analytics/viewing";
 import { buildEpisodeCommentary, type EpisodeNote } from "@/lib/analytics/episodeCommentary";
+import { buildWorkReactions, buildWorkMoments } from "@/lib/analytics/workReactions";
 import { RetentionChart, type RetentionSeriesInput } from "./RetentionChart";
 import { EpisodeTrendChart, EpisodeHeatSelector } from "./WorkAnalysisPanel";
+import {
+  ReactionCompositionBar,
+  EpisodeReactionTrend,
+  WorkMomentsList,
+} from "./WorkReactionCharts";
 
 /**
  * 作品の視聴分析セクション（話数別コメント数・継続率＋満足度・全話の盛り上がり）。
@@ -10,6 +16,8 @@ import { EpisodeTrendChart, EpisodeHeatSelector } from "./WorkAnalysisPanel";
 export function WorkAnalysisSections({ analysis }: { analysis: WorkAnalysis }) {
   const retentionSeries = buildRetentionSeries(analysis);
   const commentary = buildEpisodeCommentary(analysis);
+  const reactions = buildWorkReactions(analysis);
+  const moments = buildWorkMoments(analysis, 5);
 
   return (
     <>
@@ -22,6 +30,34 @@ export function WorkAnalysisSections({ analysis }: { analysis: WorkAnalysis }) {
           </p>
           <EpisodeTrendChart episodes={analysis.episodes} />
           <CommentaryBlock summary={commentary.summary} notes={commentary.notes} />
+        </section>
+      )}
+
+      {/* リアクションの傾向 */}
+      {reactions && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">リアクションの傾向</h2>
+          <p className="text-xs text-muted mb-4">
+            実況コメントの内容を分類し、この作品がどんな反応で盛り上がるかを構成比で示します。
+          </p>
+          <ReactionCompositionBar breakdown={reactions} />
+          {reactions.perEpisode.length >= 2 && (
+            <div className="mt-6 border-t border-line pt-4">
+              <p className="text-xs font-bold text-ink-soft mb-3">話数ごとの内訳</p>
+              <EpisodeReactionTrend perEpisode={reactions.perEpisode} />
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* 名場面（盛り上がった瞬間） */}
+      {moments.length > 0 && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">名場面（盛り上がった瞬間）</h2>
+          <p className="text-xs text-muted mb-4">
+            全話を通してコメントが集中した瞬間。1分間に流れたコメント数が多かった順に並べています。
+          </p>
+          <WorkMomentsList moments={moments} />
         </section>
       )}
 
