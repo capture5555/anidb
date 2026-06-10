@@ -191,6 +191,12 @@ export function WorkMomentsList({ moments }: { moments: WorkMoment[] }) {
             <p className="text-sm text-ink truncate">
               <span className="font-bold">{m.episodeLabel}</span>
               <span className="text-ink-soft ml-1.5">開始{m.minute}分ごろ</span>
+              {m.isSpike && (
+                <span className="ml-2 inline-flex items-center gap-0.5 rounded-full bg-accent/10 px-1.5 py-0.5 text-[0.62rem] font-bold text-accent tabular-nums align-middle">
+                  ★神シーン
+                  <span className="text-[0.58rem] font-medium opacity-80">z{m.z.toFixed(1)}</span>
+                </span>
+              )}
             </p>
             {m.comments.length > 0 && (
               <p className="text-xs text-muted truncate">
