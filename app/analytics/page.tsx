@@ -10,6 +10,12 @@ import {
 } from "@/lib/analytics";
 import { getStudioScorecards, type StudioScorecard } from "@/lib/analytics/studios";
 import {
+  getVoiceActorScorecards,
+  getStaffScorecards,
+  type VaScorecard,
+  type StaffScorecard,
+} from "@/lib/analytics/people";
+import {
   getRetentionSeries,
   getJikkyoRetentionSeries,
   getHotPrograms,
@@ -64,7 +70,13 @@ export default async function AnalyticsPage({
 }) {
   const sp = await searchParams;
   const view =
-    sp.view === "industry" ? "industry" : sp.view === "scorecard" ? "scorecard" : "viewing";
+    sp.view === "industry"
+      ? "industry"
+      : sp.view === "scorecard"
+        ? "scorecard"
+        : sp.view === "people"
+          ? "people"
+          : "viewing";
   const basis = sp.basis === "annict" ? "annict" : "jikkyo";
 
   return (
@@ -79,6 +91,7 @@ export default async function AnalyticsPage({
           {[
             { key: "viewing", href: "/analytics", label: "視聴分析" },
             { key: "scorecard", href: "/analytics?view=scorecard", label: "クール診断" },
+            { key: "people", href: "/analytics?view=people", label: "人材" },
             { key: "industry", href: "/analytics?view=industry", label: "業界データ" },
           ].map((t) => (
             <li key={t.key}>
@@ -99,6 +112,8 @@ export default async function AnalyticsPage({
         <ViewingSection basis={basis} />
       ) : view === "scorecard" ? (
         <ScorecardSection />
+      ) : view === "people" ? (
+        <PeopleSection />
       ) : (
         <IndustrySection period={sp.period} />
       )}
@@ -539,6 +554,176 @@ function QuadrantTag({ q }: { q: Quadrant }) {
     >
       {QUADRANT_LABELS[q]}
     </span>
+  );
+}
+
+/* ================================================================ 人材 */
+
+async function PeopleSection() {
+  const [vas, staffBuckets] = await Promise.all([
+    getVoiceActorScorecards({ limit: 30 }).catch(() => []),
+    getStaffScorecards({ limit: 15 }).catch(() => []),
+  ]);
+
+  return (
+    <div className="space-y-5">
+      {/* 声優スコアカード */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">声優スコアカード</h2>
+        <p className="text-xs text-muted mb-1">
+          主演作の平均スコア順（ノイズ除去のためスコア付き出演3本以上が対象）。注目度の高い声優を上位に表示。
+        </p>
+        <p className="text-[0.68rem] text-muted mb-4 leading-relaxed">
+          主演＝キャスト表の上位（sort上位）を主演級とみなした近似。打率＝出演作が同クールのスコア中央値以上だった割合。
+          モメンタム＝直近2年と通算の平均スコア差（▲上昇／▽下降）。★＝直近1年に主演作が当該クール上位10%入り（ブレイク）。
+          スコアはAniList優先、なければMAL換算。
+        </p>
+        {vas.length === 0 ? (
+          <p className="text-sm text-muted">スコアデータが十分に集まっていません。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-sm border-collapse">
+              <thead>
+                <tr className="text-xs text-muted border-b border-line">
+                  <th className="text-left font-bold py-2 pr-2 w-6">#</th>
+                  <th className="text-left font-bold py-2 pr-3">声優</th>
+                  <th className="text-center font-bold py-2 px-1 w-12">出演</th>
+                  <th className="text-center font-bold py-2 px-1 w-14">主演率</th>
+                  <th className="text-center font-bold py-2 px-1 w-20">主演作平均</th>
+                  <th className="text-center font-bold py-2 px-1 w-14">打率</th>
+                  <th className="text-center font-bold py-2 px-1 w-20">モメンタム</th>
+                  <th className="text-center font-bold py-2 pl-3 w-12">注目</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vas.map((v, i) => (
+                  <VaRow key={v.name} v={v} rank={i + 1} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* スタッフ実績 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {staffBuckets.map((bucket) => (
+          <StaffBucketCard key={bucket.role} label={bucket.label} people={bucket.people} />
+        ))}
+      </div>
+
+      <p className="text-xs text-muted leading-relaxed">
+        ※ スコアはAniList（無ければMAL換算）由来の参考値で、各サービス利用者を母数とした評価です。
+        声優・スタッフの同定はクレジット表記のテキストに基づく近似であり、表記ゆれ等で精度に限界があります。
+      </p>
+    </div>
+  );
+}
+
+function VaRow({ v, rank }: { v: VaScorecard; rank: number }) {
+  const baStr = formatBa(v.battingAverage);
+  return (
+    <tr className="border-b border-line/60 hover:bg-paper/60">
+      <td className="py-2 pr-2 text-xs text-muted tabular-nums">{rank}</td>
+      <td className="py-2 pr-3">
+        <span className="font-medium text-ink line-clamp-1">{v.name}</span>
+      </td>
+      <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">{v.appearances}</td>
+      <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">
+        {Math.round(v.leadRatio * 100)}%
+      </td>
+      <td className="py-2 px-1 text-center tabular-nums font-black text-accent">
+        {v.leadAvgScore != null ? Math.round(v.leadAvgScore) : "—"}
+      </td>
+      <td className="py-2 px-1 text-center tabular-nums text-xs font-bold text-ink">{baStr}</td>
+      <td className="py-2 px-1 text-center">
+        <MomentumTag value={v.momentum} />
+      </td>
+      <td className="py-2 pl-3 text-center">
+        {v.breakout ? (
+          <span className="text-accent font-black" title="ブレイク">
+            ★
+          </span>
+        ) : (
+          <span className="text-muted">—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function MomentumTag({ value }: { value: number | null }) {
+  if (value == null) return <span className="text-xs text-muted">—</span>;
+  const rounded = Math.round(value * 10) / 10;
+  if (rounded > 0) {
+    return (
+      <span className="text-xs font-bold tabular-nums text-emerald-600">
+        ▲+{rounded.toFixed(1)}
+      </span>
+    );
+  }
+  if (rounded < 0) {
+    return (
+      <span className="text-xs font-bold tabular-nums text-rose-500">
+        ▽{rounded.toFixed(1)}
+      </span>
+    );
+  }
+  return <span className="text-xs font-bold tabular-nums text-muted">±0.0</span>;
+}
+
+function StaffBucketCard({ label, people }: { label: string; people: StaffScorecard[] }) {
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-base mb-3">{label}</h2>
+      {people.length === 0 ? (
+        <p className="text-sm text-muted">データがありません。</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[320px] text-sm border-collapse">
+            <thead>
+              <tr className="text-[0.68rem] text-muted border-b border-line">
+                <th className="text-left font-bold py-1.5 pr-2">名前</th>
+                <th className="text-center font-bold py-1.5 px-1 w-10">作品</th>
+                <th className="text-center font-bold py-1.5 px-1 w-12">平均</th>
+                <th className="text-center font-bold py-1.5 px-1 w-12">一貫性</th>
+                <th className="text-center font-bold py-1.5 px-1 w-12">打率</th>
+                <th className="text-left font-bold py-1.5 pl-2 w-20">直近</th>
+              </tr>
+            </thead>
+            <tbody>
+              {people.map((p) => {
+                const conColor = consistencyColor(p.consistency);
+                return (
+                  <tr key={p.name} className="border-b border-line/60 hover:bg-paper/60">
+                    <td className="py-1.5 pr-2">
+                      <span className="font-medium text-ink line-clamp-1 text-xs">{p.name}</span>
+                    </td>
+                    <td className="py-1.5 px-1 text-center tabular-nums text-xs text-ink-soft">
+                      {p.works}
+                    </td>
+                    <td className="py-1.5 px-1 text-center tabular-nums font-black text-accent text-xs">
+                      {Math.round(p.avgScore)}
+                    </td>
+                    <td
+                      className={`py-1.5 px-1 text-center tabular-nums font-bold text-xs ${conColor}`}
+                    >
+                      {p.consistency != null ? p.consistency : "—"}
+                    </td>
+                    <td className="py-1.5 px-1 text-center tabular-nums text-xs font-bold text-ink">
+                      {formatBa(p.battingAverage)}
+                    </td>
+                    <td className="py-1.5 pl-2">
+                      <ScoreSparkline data={p.yearTrend} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
