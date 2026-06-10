@@ -7,6 +7,8 @@ import {
   getTopRated,
   type Filter,
   type RatedWork,
+  type SeasonVolume,
+  type VaStat,
 } from "@/lib/analytics";
 import { getStudioScorecards, type StudioScorecard } from "@/lib/analytics/studios";
 import { getGenreInsights, type GenreInsight } from "@/lib/analytics/genres";
@@ -469,7 +471,7 @@ async function ScorecardSection() {
 
       {/* 偏差値ランキング表 */}
       <section className="card p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-3 mb-1">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
           <h2 className="section-title text-lg">偏差値カルテ（総合順）</h2>
           <CsvExportButton
             filename={`クール診断_偏差値カルテ_${card.year}_${card.season}`}
@@ -691,7 +693,7 @@ async function PeopleSection() {
       })()}
       {/* 声優スコアカード */}
       <section className="card p-5 sm:p-6">
-        <div className="flex items-start justify-between gap-3 mb-1">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
           <h2 className="section-title text-lg">声優スコアカード</h2>
           {vas.length > 0 && (
             <CsvExportButton
@@ -873,13 +875,13 @@ async function IndustrySection({ period }: { period?: string }) {
   const curYear = new Date().getFullYear();
   const { filter, label, key } = parsePeriod(period, curYear);
 
-  const volumeAll = await getSeasonVolume();
+  const volumeAll = await getSeasonVolume().catch((): SeasonVolume[] => []);
   const [scorecards, vas, popular, topAni, topMal, genreInsights] = await Promise.all([
-    getStudioScorecards({ limit: 20 }),
-    getVaRanking(filter, 24),
-    getPopular(filter, 12),
-    getTopRated(filter, "anilist", 12),
-    getTopRated(filter, "mal", 12),
+    getStudioScorecards({ limit: 20 }).catch((): StudioScorecard[] => []),
+    getVaRanking(filter, 24).catch((): VaStat[] => []),
+    getPopular(filter, 12).catch((): RatedWork[] => []),
+    getTopRated(filter, "anilist", 12).catch((): RatedWork[] => []),
+    getTopRated(filter, "mal", 12).catch((): RatedWork[] => []),
     getGenreInsights().catch(() => [] as GenreInsight[]),
   ]);
 
@@ -1066,7 +1068,7 @@ function ScoreSparkline({ data }: { data: { year: number; avgScore: number }[] }
 function StudioScorecardCard({ scorecards }: { scorecards: StudioScorecard[] }) {
   return (
     <section className="card p-5 sm:p-6">
-      <div className="flex items-start justify-between gap-3 mb-1">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
         <h2 className="section-title text-lg">スタジオ・スコアカード</h2>
         {scorecards.length > 0 && (
           <CsvExportButton
@@ -1154,6 +1156,9 @@ function StudioScorecardCard({ scorecards }: { scorecards: StudioScorecard[] }) 
           </table>
         </div>
       )}
+      <p className="text-[0.68rem] text-muted mt-3 leading-relaxed">
+        ※ スコアはAniList/MAL由来・各サービス利用者を母数とした参考値です。テレビ視聴率ではありません。
+      </p>
     </section>
   );
 }
@@ -1213,6 +1218,9 @@ function GenreTrendsCard({ insights }: { insights: GenreInsight[] }) {
           </table>
         </div>
       )}
+      <p className="text-[0.68rem] text-muted mt-3 leading-relaxed">
+        ※ スコアはAniList/MAL由来・各サービス利用者を母数とした参考値です。テレビ視聴率ではありません。
+      </p>
     </section>
   );
 }
