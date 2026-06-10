@@ -8,6 +8,8 @@ export interface BuiltEvent {
   description: string;
   startISO: string;
   endISO: string;
+  /** 場所（LOCATION）。放送局名 */
+  location?: string;
 }
 
 /**
@@ -25,13 +27,13 @@ export function buildEvent(
   const subtitle = episode?.title ?? null;
   const countLabel = program.count != null ? `第${program.count}話` : episode?.numberText ?? null;
 
-  // タイトル
+  // タイトル（【アニメ】プレフィックスは付けない）
   let summary: string;
   if (sub.mode === "per_episode" && countLabel) {
-    summary = `【アニメ】${work.title} ${countLabel}`;
+    summary = `${work.title} ${countLabel}`;
     if (sub.includeSubtitle && subtitle) summary += `「${subtitle}」`;
   } else {
-    summary = `【アニメ】${work.title}`;
+    summary = work.title;
   }
 
   // 説明欄（取得できた範囲で）
@@ -48,5 +50,5 @@ export function buildEvent(
     program.endAt ??
     new Date(new Date(program.startAt).getTime() + DEFAULT_DURATION_MIN * 60 * 1000).toISOString();
 
-  return { summary, description, startISO, endISO };
+  return { summary, description, startISO, endISO, location: program.channelName ?? undefined };
 }
