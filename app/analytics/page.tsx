@@ -9,6 +9,7 @@ import {
   type RatedWork,
 } from "@/lib/analytics";
 import { getStudioScorecards, type StudioScorecard } from "@/lib/analytics/studios";
+import { getGenreInsights, type GenreInsight } from "@/lib/analytics/genres";
 import {
   getVoiceActorScorecards,
   getStaffScorecards,
@@ -734,12 +735,13 @@ async function IndustrySection({ period }: { period?: string }) {
   const { filter, label, key } = parsePeriod(period, curYear);
 
   const volumeAll = await getSeasonVolume();
-  const [scorecards, vas, popular, topAni, topMal] = await Promise.all([
+  const [scorecards, vas, popular, topAni, topMal, genreInsights] = await Promise.all([
     getStudioScorecards({ limit: 20 }),
     getVaRanking(filter, 24),
     getPopular(filter, 12),
     getTopRated(filter, "anilist", 12),
     getTopRated(filter, "mal", 12),
+    getGenreInsights().catch(() => [] as GenreInsight[]),
   ]);
 
   const maxVa = Math.max(1, ...vas.map((v) => v.work_count));
@@ -818,6 +820,9 @@ async function IndustrySection({ period }: { period?: string }) {
           ))}
         </div>
       </Card>
+
+      {/* ジャンル動向 */}
+      <GenreTrendsCard insights={genreInsights} />
 
       {/* シーズン別本数推移 */}
       <Card title="シーズン別の放送本数" note="クールごとの放送本数（全期間）">
@@ -995,6 +1000,55 @@ function Card({ title, note, children }: { title: string; note?: string; childre
       <h2 className="section-title text-lg mb-1">{title}</h2>
       {note && <p className="text-xs text-muted mb-4">{note}</p>}
       {children}
+    </section>
+  );
+}
+
+/* ================================================================ ジャンル動向 */
+
+function GenreTrendsCard({ insights }: { insights: GenreInsight[] }) {
+  const top = insights.slice(0, 24);
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-lg mb-1">ジャンル動向</h2>
+      <p className="text-xs text-muted mb-4">
+        AniList ジャンルタグ別の作品数・平均人気・平均スコア（上位24ジャンル）。
+        スコアは AniList 優先、なければ MAL 換算。データは12時間ごとに補完されます。
+      </p>
+      {top.length === 0 ? (
+        <p className="text-sm text-muted">
+          ジャンルデータはまだ補完されていません。enrich-scores スクリプト実行後に表示されます。
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm border-collapse">
+            <thead>
+              <tr className="text-xs text-muted border-b border-line">
+                <th className="text-left font-bold py-2 pr-3">ジャンル</th>
+                <th className="text-center font-bold py-2 px-2 w-16">作品数</th>
+                <th className="text-center font-bold py-2 px-2 w-24">平均人気</th>
+                <th className="text-center font-bold py-2 px-2 w-20">平均スコア</th>
+              </tr>
+            </thead>
+            <tbody>
+              {top.map((g) => (
+                <tr key={g.genre} className="border-b border-line/60 hover:bg-paper/60">
+                  <td className="py-2 pr-3 font-medium text-ink">{g.genre}</td>
+                  <td className="py-2 px-2 text-center tabular-nums text-xs text-ink-soft">
+                    {g.worksCount.toLocaleString()}
+                  </td>
+                  <td className="py-2 px-2 text-center tabular-nums text-xs text-ink-soft">
+                    {g.avgPopularity.toLocaleString()}
+                  </td>
+                  <td className="py-2 px-2 text-center tabular-nums font-bold text-accent">
+                    {g.avgScore != null ? g.avgScore.toFixed(1) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

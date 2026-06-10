@@ -16,6 +16,8 @@ const QUERY = /* GraphQL */ `
         averageScore
         popularity
         coverImage { extraLarge large }
+        description(asHtml: false)
+        genres
       }
     }
   }
@@ -36,6 +38,8 @@ interface AniMedia {
   averageScore: number | null; // 0-100
   popularity: number | null; // 登録者数
   coverImage: { extraLarge: string | null; large: string | null };
+  description: string | null; // プレーンテキストあらすじ
+  genres: string[] | null;
 }
 
 export interface AniListInfo {
@@ -43,6 +47,8 @@ export interface AniListInfo {
   score: number | null; // 0-100（海外平均）
   popularity: number | null; // 海外登録者数
   malId: number | null;
+  description: string | null; // HTMLタグ除去済みあらすじ
+  genres: string[]; // ジャンル名リスト
 }
 
 const titlesOf = (m: AniMedia) =>
@@ -121,12 +127,25 @@ async function matchMedia(title: string, year?: number | null): Promise<AniMedia
   return null;
 }
 
+/** AniList description はプレーンテキスト想定だが念のためHTMLタグを除去し、余分な空白を正規化する */
+function stripHtml(text: string | null | undefined): string | null {
+  if (!text) return null;
+  return text
+    .replace(/<[^>]*>/g, " ") // タグを空白に置換
+    .replace(/&[a-z]+;/gi, (e) => {
+      const m: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&nbsp;": " " };
+      return m[e.toLowerCase()] ?? " ";
+    })
+    .replace(/\s+/g, " ")
+    .trim() || null;
+}
+
 export async function fetchPosterUrl(title: string, year?: number | null): Promise<string | null> {
   const m = await matchMedia(title, year);
   return m?.coverImage.extraLarge ?? m?.coverImage.large ?? null;
 }
 
-/** タイトル（＋年）から AniList のスコア・登録者数・MAL ID を取得 */
+/** タイトル（＋年）から AniList のスコア・登録者数・MAL ID・あらすじ・ジャンルを取得 */
 export async function fetchAniListInfo(title: string, year?: number | null): Promise<AniListInfo> {
   const m = await matchMedia(title, year);
   return {
@@ -134,5 +153,7 @@ export async function fetchAniListInfo(title: string, year?: number | null): Pro
     score: m?.averageScore ?? null,
     popularity: m?.popularity ?? null,
     malId: m?.idMal ?? null,
+    description: stripHtml(m?.description),
+    genres: m?.genres ?? [],
   };
 }
