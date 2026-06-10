@@ -8,6 +8,7 @@
  */
 import { getAdminClient } from "../supabase/admin.ts";
 import type { ReactionCategory } from "./commentAnalysis.ts";
+import { memoizeTTL } from "../cache.ts";
 
 const chunk = <T,>(arr: T[], size: number): T[][] => {
   const out: T[][] = [];
@@ -76,7 +77,7 @@ const zeroShares = (): CatShares => ({ laugh: 0, hype: 0, cry: 0, surprise: 0, s
  *
  * 集計パターンは viewing.ts の getReactionRatios を踏襲。
  */
-export async function getCohortReactionAverage(): Promise<{ shares: CatShares; basis: number }> {
+async function getCohortReactionAverageUncached(): Promise<{ shares: CatShares; basis: number }> {
   try {
     const db = getAdminClient();
 
@@ -138,3 +139,13 @@ export async function getCohortReactionAverage(): Promise<{ shares: CatShares; b
     return { shares: zeroShares(), basis: 0 };
   }
 }
+
+/**
+ * クール平均リアクション構成比（30分メモ化）。エクスポート名・挙動は従来どおり。
+ * 全リアクション行を読む重い集計なのでキャッシュする。
+ */
+export const getCohortReactionAverage = memoizeTTL(
+  getCohortReactionAverageUncached,
+  () => "cohort",
+  1800000,
+);
