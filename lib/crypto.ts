@@ -2,16 +2,8 @@ import crypto from "node:crypto";
 
 /**
  * AES-256-GCM による暗号化ユーティリティ。
- * - リフレッシュトークンの暗号化保存（TOKEN_ENCRYPTION_KEY）
- * - セッションCookieの暗号化（SESSION_SECRET から鍵導出）
- * に使う。
+ * セッションCookieの暗号化（SESSION_SECRET から鍵導出）に使う。
  */
-
-function keyFromHex(hex: string): Buffer {
-  const buf = Buffer.from(hex, "hex");
-  if (buf.length !== 32) throw new Error("encryption key must be 32 bytes (64 hex chars)");
-  return buf;
-}
 
 function keyFromSecret(secret: string): Buffer {
   // 任意長のシークレットから32バイト鍵を導出
@@ -36,22 +28,6 @@ export function decryptWithKey(payload: string, key: Buffer): string {
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
-}
-
-// --- トークン暗号化（DB保存用） ---
-
-export function getTokenKey(): Buffer {
-  const hex = process.env.TOKEN_ENCRYPTION_KEY;
-  if (!hex) throw new Error("TOKEN_ENCRYPTION_KEY is not set");
-  return keyFromHex(hex);
-}
-
-export function encryptToken(token: string): string {
-  return encryptWithKey(token, getTokenKey());
-}
-
-export function decryptToken(payload: string): string {
-  return decryptWithKey(payload, getTokenKey());
 }
 
 // --- セッション暗号化（Cookie用） ---

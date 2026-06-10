@@ -1,15 +1,15 @@
-import type { DataProvider } from "./provider";
-import { SEED_WORKS } from "./seed-data";
+import type { DataProvider } from "./provider.ts";
+import { SEED_WORKS } from "./seed-data.ts";
 import type {
   Season,
   WorkDetail,
   WorkListResult,
   WorkQuery,
   WorkSummary,
-} from "@/lib/types";
-import { nextSeason, seasonOf, seasonSlug } from "@/lib/season";
-import { airSlot } from "@/lib/format";
-import type { ScheduleEntry } from "@/lib/types";
+} from "../types.ts";
+import { nextSeason, seasonOf, seasonSlug } from "../season.ts";
+import { airSlot } from "../format.ts";
+import type { ScheduleEntry } from "../types.ts";
 
 function toSummary(w: WorkDetail): WorkSummary {
   return {

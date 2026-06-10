@@ -1,11 +1,17 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import type { GoogleCalendarInfo, SubscriptionMode } from "@/lib/types";
+import { useCallback, useState } from "react";
+import Link from "next/link";
+import type { SubscriptionMode } from "@/lib/types";
 
-type Phase = "idle" | "loading" | "need-auth" | "choosing" | "submitting" | "done" | "error";
+type Phase = "idle" | "choosing" | "need-auth" | "submitting" | "done" | "error";
 
-export function AddToCalendar({
+/**
+ * 作品を「選択リスト」へ登録するボタン。
+ * 旧 AddToCalendar と違い、Googleカレンダーへ直接書き込まず、
+ * 登録した作品が ICS 購読フィード（/cal/{token}.ics）に載る方式。
+ */
+export function SubscribeButton({
   workId,
   workTitle,
   compact = false,
@@ -16,52 +22,26 @@ export function AddToCalendar({
 }) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [calendars, setCalendars] = useState<GoogleCalendarInfo[]>([]);
   const [demo, setDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ created: number; updated: number } | null>(null);
+  const [created, setCreated] = useState(0);
 
   // 選択状態
-  const [calendarId, setCalendarId] = useState<string>("");
   const [mode, setMode] = useState<SubscriptionMode>("per_episode");
   const [includeSubtitle, setIncludeSubtitle] = useState(true);
   const [includeChannel, setIncludeChannel] = useState(true);
   const [includeUrl, setIncludeUrl] = useState(true);
 
   const startAuth = useCallback(() => {
-    const returnTo = `/works/${workId}?add=1`;
+    const returnTo = typeof window !== "undefined" ? window.location.pathname : `/works/${workId}`;
     window.location.href = `/api/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`;
   }, [workId]);
 
-  const loadCalendars = useCallback(async () => {
-    setPhase("loading");
-    setError(null);
-    try {
-      const res = await fetch("/api/me/calendars");
-      if (res.status === 401) {
-        setPhase("need-auth");
-        return;
-      }
-      if (!res.ok) throw new Error(`カレンダー取得に失敗しました (${res.status})`);
-      const data = await res.json();
-      const writable: GoogleCalendarInfo[] = (data.calendars ?? []).filter(
-        (c: GoogleCalendarInfo) => c.accessRole === "owner" || c.accessRole === "writer",
-      );
-      setCalendars(writable);
-      setDemo(Boolean(data.demo));
-      setCalendarId(writable.find((c) => c.primary)?.id ?? writable[0]?.id ?? "");
-      setPhase("choosing");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "不明なエラー");
-      setPhase("error");
-    }
-  }, []);
-
   const openModal = useCallback(() => {
     setOpen(true);
-    setResult(null);
-    void loadCalendars();
-  }, [loadCalendars]);
+    setPhase("choosing");
+    setError(null);
+  }, []);
 
   const submit = useCallback(async () => {
     setPhase("submitting");
@@ -70,27 +50,25 @@ export function AddToCalendar({
       const res = await fetch("/api/subscriptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workId,
-          googleCalendarId: calendarId,
-          mode,
-          includeSubtitle,
-          includeChannel,
-          includeUrl,
-        }),
+        body: JSON.stringify({ workId, mode, includeSubtitle, includeChannel, includeUrl }),
       });
+      if (res.status === 401) {
+        setPhase("need-auth");
+        return;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `登録に失敗しました (${res.status})`);
       }
       const data = await res.json();
-      setResult({ created: data.created ?? 0, updated: data.updated ?? 0 });
+      setDemo(Boolean(data.demo));
+      setCreated(data.created ?? 0);
       setPhase("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "不明なエラー");
       setPhase("error");
     }
-  }, [workId, calendarId, mode, includeSubtitle, includeChannel, includeUrl]);
+  }, [workId, mode, includeSubtitle, includeChannel, includeUrl]);
 
   const close = () => {
     setOpen(false);
@@ -102,8 +80,8 @@ export function AddToCalendar({
       {compact ? (
         <button
           onClick={openModal}
-          title="Googleカレンダーへ追加"
-          aria-label="Googleカレンダーへ追加"
+          title="カレンダーに登録"
+          aria-label="カレンダーに登録"
           className="inline-flex items-center justify-center w-8 h-8 border border-line-strong text-ink-soft rounded-[var(--radius-card)] hover:border-accent hover:text-accent transition-colors"
         >
           <CalendarGlyph />
@@ -114,7 +92,7 @@ export function AddToCalendar({
           className="inline-flex items-center gap-2 bg-accent text-paper px-5 py-2.5 rounded-[var(--radius-card)] text-sm font-medium tracking-wide hover:bg-[var(--color-accent-soft)] transition-colors"
         >
           <CalendarGlyph />
-          Googleカレンダーへ追加
+          カレンダーに登録
         </button>
       )}
 
@@ -138,12 +116,11 @@ export function AddToCalendar({
             </div>
 
             <div className="px-6 py-5">
-              {phase === "loading" && <p className="text-sm text-muted py-6 text-center">カレンダーを読み込み中…</p>}
-
               {phase === "need-auth" && (
                 <div className="py-2">
                   <p className="text-sm text-ink-soft leading-relaxed">
-                    カレンダーへ登録するには、Googleでのログイン（カレンダーへのアクセス許可）が必要です。閲覧だけならログインは不要です。
+                    登録した作品をどの端末からでも管理できるように、Googleでのログイン（本人確認のみ）が必要です。
+                    カレンダーへのアクセス権限は求めません。閲覧だけならログインは不要です。
                   </p>
                   <button
                     onClick={startAuth}
@@ -156,28 +133,7 @@ export function AddToCalendar({
 
               {phase === "choosing" && (
                 <div className="space-y-5">
-                  {demo && (
-                    <p className="text-xs text-[var(--color-info)] bg-[var(--color-info)]/8 border border-[var(--color-info)]/25 rounded-[var(--radius-card)] px-3 py-2 leading-relaxed">
-                      デモモードで表示しています（Google連携が未設定）。実際の登録は行われませんが、操作の流れを確認できます。
-                    </p>
-                  )}
-
-                  <Field label="登録先カレンダー">
-                    <select
-                      value={calendarId}
-                      onChange={(e) => setCalendarId(e.target.value)}
-                      className="w-full border border-line-strong bg-paper rounded-[var(--radius-card)] px-3 py-2 text-sm"
-                    >
-                      {calendars.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.summary}
-                          {c.primary ? "（メイン）" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-
-                  <Field label="登録の単位">
+                  <Field label="予定の単位">
                     <div className="flex gap-2">
                       <Choice active={mode === "per_episode"} onClick={() => setMode("per_episode")}>
                         各話ごと
@@ -200,33 +156,52 @@ export function AddToCalendar({
 
                   <button
                     onClick={submit}
-                    disabled={!calendarId}
-                    className="w-full bg-accent text-paper py-2.5 rounded-[var(--radius-card)] text-sm font-medium hover:bg-[var(--color-accent-soft)] transition disabled:opacity-40"
+                    className="w-full bg-accent text-paper py-2.5 rounded-[var(--radius-card)] text-sm font-medium hover:bg-[var(--color-accent-soft)] transition"
                   >
-                    このカレンダーに登録する
+                    登録する
                   </button>
                   <p className="text-[0.72rem] text-muted leading-relaxed">
-                    登録後は、PCを起動していなくても新しい放送回が自動で追加されます。同じ予定が重複して登録されることはありません。
+                    登録した作品の放送予定は、購読URL（マイページで取得）を通じてGoogleカレンダーへ自動反映されます。
+                    新しい放送回も自動で追加され、重複することはありません。
                   </p>
                 </div>
               )}
 
               {phase === "submitting" && <p className="text-sm text-muted py-6 text-center">登録しています…</p>}
 
-              {phase === "done" && result && (
+              {phase === "done" && (
                 <div className="py-4 text-center">
                   <p className="display text-xl text-ink">登録しました</p>
                   <p className="text-sm text-ink-soft mt-2 leading-relaxed">
-                    {result.created} 件の放送予定を追加しました
-                    {result.updated > 0 && `（${result.updated} 件を更新）`}。<br />
-                    今後の放送回も自動で追加されます。
+                    {created} 件の放送予定がフィードに追加されます。
+                    {demo ? (
+                      <>
+                        <br />
+                        （デモモードのため実際の登録は行われていません）
+                      </>
+                    ) : (
+                      <>
+                        <br />
+                        カレンダー購読が未設定の場合は、マイページの購読URLを一度だけGoogleカレンダーに設定してください。
+                      </>
+                    )}
                   </p>
-                  <button
-                    onClick={close}
-                    className="mt-5 border border-line-strong px-5 py-2 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition"
-                  >
-                    閉じる
-                  </button>
+                  <div className="mt-5 flex items-center justify-center gap-3">
+                    {!demo && (
+                      <Link
+                        href="/me"
+                        className="bg-ink text-paper px-5 py-2 rounded-[var(--radius-card)] text-sm hover:opacity-90 transition"
+                      >
+                        購読設定を確認
+                      </Link>
+                    )}
+                    <button
+                      onClick={close}
+                      className="border border-line-strong px-5 py-2 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition"
+                    >
+                      閉じる
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -234,7 +209,7 @@ export function AddToCalendar({
                 <div className="py-4 text-center">
                   <p className="text-sm text-accent">{error}</p>
                   <button
-                    onClick={() => void loadCalendars()}
+                    onClick={() => setPhase("choosing")}
                     className="mt-4 border border-line-strong px-5 py-2 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition"
                   >
                     やり直す

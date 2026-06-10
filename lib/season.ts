@@ -1,4 +1,4 @@
-import type { Season } from "./types";
+import type { Season } from "./types.ts";
 
 export const SEASON_LABELS: Record<Season, string> = {
   winter: "冬",

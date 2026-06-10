@@ -95,7 +95,6 @@ export interface Subscription {
   id: string;
   userId: string;
   workId: string;
-  googleCalendarId: string;
   mode: SubscriptionMode;
   includeSubtitle: boolean;
   includeChannel: boolean;
@@ -103,14 +102,6 @@ export interface Subscription {
   autoSync: boolean;
   status: "active" | "paused" | "cancelled";
   createdAt: string;
-}
-
-export interface GoogleCalendarInfo {
-  id: string;
-  summary: string;
-  primary: boolean;
-  accessRole: "owner" | "writer" | "reader" | "freeBusyReader";
-  backgroundColor?: string;
 }
 
 // --- 一覧クエリ ---

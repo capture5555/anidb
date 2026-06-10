@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "./WorkCover";
-import { AddToCalendar } from "./AddToCalendar";
+import { SubscribeButton } from "./SubscribeButton";
 import { formatAirShort } from "@/lib/format";
 
 /** TOPページの「この後の放送」ミニ番組表（直近に放送される作品を早い順に） */
@@ -45,7 +45,7 @@ export async function UpcomingStrip() {
                 <p className="text-[0.65rem] text-muted truncate">{e.channelName ?? ""}</p>
               </div>
               <div className="shrink-0">
-                <AddToCalendar workId={e.workId} workTitle={e.title} compact />
+                <SubscribeButton workId={e.workId} workTitle={e.title} compact />
               </div>
             </li>
           ))}

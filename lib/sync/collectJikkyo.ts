@@ -1,0 +1,191 @@
+import { getAdminClient } from "../supabase/admin.ts";
+import { fetchKakolog } from "../adapters/jikkyo.ts";
+import { analyzeProgram, type ProgramAnalysis } from "../analytics/commentAnalysis.ts";
+
+/**
+ * ニコニコ実況の過去ログを収集し、生ログ保存＋分単位の分析結果を保存する。
+ * - 対象: end_at が「26時間前〜45分前」の本放送（過去ログAPIへの反映バッファとして45分待つ）
+ * - 冪等: analytics_collection_log(program_id, source) が収集済みゲート。
+ *   no_channel（実況チャンネルの無い局）も記録して再試行させない。
+ */
+
+const SOURCE = "nicojk";
+const LOOKBACK_HOURS = 26;
+const MIN_AGE_MINUTES = 45;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const chunk = <T,>(arr: T[], size: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+};
+
+export interface CollectJikkyoResult {
+  candidates: number;
+  collected: number;
+  noChannel: number;
+  noComments: number;
+  errors: number;
+}
+
+type Db = ReturnType<typeof getAdminClient>;
+
+/** 分析結果を保存する（delete-then-insert。reanalyze-comments からも使う） */
+export async function storeProgramAnalysis(
+  db: Db,
+  programId: string,
+  analysis: ProgramAnalysis,
+): Promise<void> {
+  await db.from("analytics_minute_heat").delete().eq("program_id", programId).eq("source", SOURCE);
+  await db.from("analytics_minute_reactions").delete().eq("program_id", programId);
+  await db.from("analytics_peak_comments").delete().eq("program_id", programId);
+
+  if (analysis.heat.length > 0) {
+    const { error } = await db.from("analytics_minute_heat").insert(
+      analysis.heat.map((h) => ({
+        program_id: programId,
+        source: SOURCE,
+        minute_offset: h.minute,
+        comment_count: h.count,
+      })),
+    );
+    if (error) throw error;
+  }
+  if (analysis.reactions.length > 0) {
+    const { error } = await db.from("analytics_minute_reactions").insert(
+      analysis.reactions.map((r) => ({
+        program_id: programId,
+        minute_offset: r.minute,
+        category: r.category,
+        count: r.count,
+      })),
+    );
+    if (error) throw error;
+  }
+  if (analysis.peaks.length > 0) {
+    const { error } = await db.from("analytics_peak_comments").insert(
+      analysis.peaks.map((p) => ({
+        program_id: programId,
+        minute_offset: p.minute,
+        comments: p.top,
+      })),
+    );
+    if (error) throw error;
+  }
+}
+
+async function logCollection(
+  db: Db,
+  programId: string,
+  status: string,
+  commentCount: number,
+  note?: string,
+): Promise<void> {
+  await db
+    .from("analytics_collection_log")
+    .upsert(
+      {
+        program_id: programId,
+        source: SOURCE,
+        status,
+        comment_count: commentCount,
+        note: note ?? null,
+        collected_at: new Date().toISOString(),
+      },
+      { onConflict: "program_id,source" },
+    );
+}
+
+export async function collectJikkyo(): Promise<CollectJikkyoResult> {
+  const db = getAdminClient();
+  const now = Date.now();
+  const from = new Date(now - LOOKBACK_HOURS * 3600 * 1000).toISOString();
+  const to = new Date(now - MIN_AGE_MINUTES * 60 * 1000).toISOString();
+
+  const { data: programs, error } = await db
+    .from("programs")
+    .select("id, start_at, end_at, channels(jikkyo_id, name)")
+    .gte("end_at", from)
+    .lte("end_at", to)
+    .eq("is_rebroadcast", false)
+    .order("end_at");
+  if (error) throw error;
+
+  // 収集済み（no_channel 等も含む）を除外
+  const done = new Set<string>();
+  for (const ids of chunk((programs ?? []).map((p) => p.id), 200)) {
+    const { data } = await db
+      .from("analytics_collection_log")
+      .select("program_id")
+      .eq("source", SOURCE)
+      .in("program_id", ids);
+    for (const row of data ?? []) done.add(row.program_id);
+  }
+  const targets = (programs ?? []).filter((p) => !done.has(p.id));
+
+  const result: CollectJikkyoResult = {
+    candidates: targets.length,
+    collected: 0,
+    noChannel: 0,
+    noComments: 0,
+    errors: 0,
+  };
+
+  for (const p of targets) {
+    const channel: any = p.channels;
+    const jkId: string | null = channel?.jikkyo_id ?? null;
+    if (!jkId) {
+      await logCollection(db, p.id, "no_channel", 0, channel?.name ?? "channel unknown");
+      result.noChannel++;
+      continue;
+    }
+
+    const startUnix = Math.floor(new Date(p.start_at).getTime() / 1000);
+    const endUnix = Math.floor(new Date(p.end_at ?? p.start_at).getTime() / 1000) || startUnix + 1800;
+
+    try {
+      const comments = await fetchKakolog(jkId, startUnix, endUnix);
+      if (comments.length === 0) {
+        await logCollection(db, p.id, "no_comments", 0);
+        result.noComments++;
+      } else {
+        // 生ログ（保険＋再分析用）: delete-then-insert
+        await db.from("analytics_jikkyo_comments").delete().eq("program_id", p.id);
+        for (const rows of chunk(comments, 1000)) {
+          const { error: insErr } = await db.from("analytics_jikkyo_comments").insert(
+            rows.map((c) => ({
+              program_id: p.id,
+              jikkyo_id: jkId,
+              posted_at: new Date(c.date * 1000).toISOString(),
+              content: c.content,
+            })),
+          );
+          if (insErr) throw insErr;
+        }
+
+        const analysis = analyzeProgram(comments, startUnix);
+        await storeProgramAnalysis(db, p.id, analysis);
+        await logCollection(db, p.id, "collected", comments.length);
+        result.collected++;
+      }
+    } catch (e) {
+      console.error(`[collectJikkyo] program=${p.id} jk=${jkId}`, e);
+      await logCollection(db, p.id, "error", 0, String(e).slice(0, 500));
+      result.errors++;
+    }
+
+    await sleep(1000); // 個人運営APIへの配慮
+  }
+
+  await db.from("sync_runs").insert({
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: result.errors === 0 ? "ok" : "partial",
+    created_count: result.collected,
+    updated_count: result.noComments,
+    error_count: result.errors,
+    note: `collect-jikkyo candidates=${result.candidates} no_channel=${result.noChannel}`,
+  });
+
+  return result;
+}

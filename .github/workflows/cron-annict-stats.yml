@@ -1,0 +1,30 @@
+# 毎日 JST 5:30 に Annict の話数別記録数をスナップショットする（残留率分析の元データ）。
+# 同日に再実行しても upsert により no-op（冪等）。
+# 必要な GitHub Secrets: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / ANNICT_TOKEN
+name: cron-annict-stats
+
+on:
+  schedule:
+    - cron: "30 20 * * *" # JST 5:30
+  workflow_dispatch:
+
+concurrency:
+  group: cron-annict-stats
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run collect-annict-stats
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANNICT_TOKEN: ${{ secrets.ANNICT_TOKEN }}

@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     template: "%s｜アニメ放送カレンダー",
   },
   description:
-    "今期・来期・放送中・放送予定のアニメ情報をまとめて閲覧。気になる作品はGoogleカレンダーへ登録できます。",
+    "今期・来期・放送中・放送予定のアニメ情報をまとめて閲覧。気になる作品はカレンダー購読でGoogleカレンダーへ自動反映できます。",
 };
 
 export default function RootLayout({

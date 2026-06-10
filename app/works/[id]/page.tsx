@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "@/components/WorkCover";
 import { StatusBadge } from "@/components/StatusBadge";
-import { AddToCalendar } from "@/components/AddToCalendar";
+import { SubscribeButton } from "@/components/SubscribeButton";
 import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
 import { pickOnePerEpisode } from "@/lib/programs";
@@ -90,7 +90,7 @@ export default async function WorkDetailPage({
           )}
 
           <div className="mt-auto pt-6 flex flex-wrap items-center gap-4">
-            <AddToCalendar workId={work.id} workTitle={work.title} />
+            <SubscribeButton workId={work.id} workTitle={work.title} />
             {work.officialSiteUrl && (
               <a
                 href={work.officialSiteUrl}

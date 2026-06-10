@@ -1,11 +1,11 @@
-import { getAdminClient } from "@/lib/supabase/admin";
+import { getAdminClient } from "../supabase/admin.ts";
 import {
   fetchWorksBySeason,
   normalizeSeasonName,
   type AnnictWork,
-} from "@/lib/adapters/annict";
-import { fetchSubtitlesByTitle } from "@/lib/adapters/syoboi";
-import type { WorkStatus } from "@/lib/types";
+} from "../adapters/annict.ts";
+import { fetchSubtitlesByTitle } from "../adapters/syoboi.ts";
+import type { WorkStatus } from "../types.ts";
 
 /** Annictにサブタイトルが無い作品を、しょぼいカレンダーで補完するか */
 const SYOBOI_BACKFILL = (process.env.SYOBOI_BACKFILL ?? "true") !== "false";

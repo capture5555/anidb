@@ -1,6 +1,6 @@
-import { getAdminClient } from "./supabase/admin";
-import { SEASON_ORDER } from "./season";
-import type { Season } from "./types";
+import { getAdminClient } from "./supabase/admin.ts";
+import { SEASON_ORDER } from "./season.ts";
+import type { Season } from "./types.ts";
 
 // 集計対象の絞り込み（期間）。空＝全期間。
 export interface Filter {

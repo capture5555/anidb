@@ -1,15 +1,11 @@
 /**
- * Google OAuth 2.0（認可コードフロー + offline access）。
- * 外部ライブラリに依存せず fetch で実装。
+ * Google OAuth 2.0（認可コードフロー）。外部ライブラリに依存せず fetch で実装。
+ * スコープは本人識別のみ（openid email profile）。
+ * カレンダー権限・offline access（リフレッシュトークン）は要求しない —
+ * 予定の反映は ICS フィード購読方式（lib/feed.ts）のため不要。
  */
 
-export const GOOGLE_SCOPES = [
-  "openid",
-  "email",
-  "profile",
-  "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-  "https://www.googleapis.com/auth/calendar.events",
-];
+export const GOOGLE_SCOPES = ["openid", "email", "profile"];
 
 export function isGoogleConfigured(): boolean {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -28,9 +24,6 @@ export function buildAuthUrl(state: string): string {
     redirect_uri: redirectUri(),
     response_type: "code",
     scope: GOOGLE_SCOPES.join(" "),
-    access_type: "offline", // リフレッシュトークン取得に必須
-    prompt: "consent", // 確実にrefresh_tokenを得る
-    include_granted_scopes: "true",
     state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -38,7 +31,6 @@ export function buildAuthUrl(state: string): string {
 
 export interface TokenResponse {
   access_token: string;
-  refresh_token?: string;
   expires_in: number;
   id_token?: string;
   scope: string;
@@ -58,23 +50,6 @@ export async function exchangeCode(code: string): Promise<TokenResponse> {
   });
   if (!res.ok) throw new Error(`token exchange failed: ${res.status} ${await res.text()}`);
   return (await res.json()) as TokenResponse;
-}
-
-/** リフレッシュトークンから新しいアクセストークンを取得 */
-export async function refreshAccessToken(refreshToken: string): Promise<string> {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      refresh_token: refreshToken,
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      grant_type: "refresh_token",
-    }),
-  });
-  if (!res.ok) throw new Error(`token refresh failed: ${res.status} ${await res.text()}`);
-  const json = (await res.json()) as TokenResponse;
-  return json.access_token;
 }
 
 export interface GoogleUserInfo {

@@ -1,0 +1,27 @@
+// Cloudflare Workers 設定（@opennextjs/cloudflare でビルドした Next.js を配信）
+// secrets（SUPABASE_SERVICE_ROLE_KEY / GOOGLE_CLIENT_SECRET / SESSION_SECRET）は
+//   npx wrangler secret put <NAME>
+// で登録する（このファイルには書かない）。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "anidb",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-05-05",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    // NEXT_PUBLIC_* はビルド時にも参照されるため、デプロイ用GitHub Actionsの env と揃えること
+    "NEXT_PUBLIC_APP_URL": "https://anidb.web-9d7.workers.dev",
+    "DATA_PROVIDER": "supabase",
+    "NEXT_PUBLIC_SUPABASE_URL": "https://mvfsxfmdpnhpwoddtlsf.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_g3bvGdS5goYnvM7SweyDvQ_y36qdGJW",
+    "GOOGLE_CLIENT_ID": "607161185952-514t5fngmus2kcs01o354gmtqvgvii4j.apps.googleusercontent.com",
+    "GOOGLE_REDIRECT_URI": "https://anidb.web-9d7.workers.dev/api/auth/google/callback"
+  }
+}

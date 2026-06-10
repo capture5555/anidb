@@ -1,0 +1,30 @@
+# 3時間おきにニコニコ実況の過去ログを収集する（分単位の盛り上がり分析の元データ）。
+# 収集対象は「26時間前〜45分前に放送が終わった未収集の番組」なので、
+# 3時間おき＋ルックバックの重複があっても analytics_collection_log により冪等。
+# 必要な GitHub Secrets: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+name: cron-jikkyo
+
+on:
+  schedule:
+    - cron: "15 */3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: cron-jikkyo
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run collect-jikkyo
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
