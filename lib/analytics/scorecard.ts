@@ -93,10 +93,14 @@ export interface WorkCohortPosition {
 
 /* ----------------------------------------------------------------- 純関数（DB不要・単体テスト可能） */
 
-/** 順位(1=最上位)とクール内作品数 N から「上位X%」を返す。rank/Nが不正ならnull。 */
+/**
+ * 順位(1=最上位)とクール内作品数 N から「上位X%」を返す。rank/Nが不正ならnull。
+ * 最上位(rank=1)ほど小さい値になる（例: 10件中1位 → 上位10%、最下位 → 上位100%）。
+ * 0%表示を避けるため下限は1%。
+ */
 export function pctRankFromRank(rank: number | null | undefined, n: number): number | null {
   if (rank == null || rank < 1 || n < 1) return null;
-  return Math.round((1 - (rank - 1) / n) * 100);
+  return Math.max(1, Math.round((rank / n) * 100));
 }
 
 /** バズ vs 評価ギャップ（認知偏差値 - 評価偏差値）。+ほど話題先行、-ほど評価先行。 */
