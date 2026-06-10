@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { getDataProvider } from "@/lib/data/provider";
 import { SeasonTabs } from "@/components/SeasonTabs";
 import { WorkCard } from "@/components/WorkCard";

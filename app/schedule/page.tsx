@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "@/components/WorkCover";
