@@ -10,7 +10,7 @@
     "lint": "next lint",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "pages:build": "opennextjs-cloudflare build && mkdir -p functions && cp .open-next/worker.js functions/_worker.js",
+    "pages:build": "opennextjs-cloudflare build && cp .open-next/worker.js .open-next/assets/_worker.js",
     "ingest": "node --experimental-strip-types scripts/ingest.ts",
     "verify-linking": "node --experimental-strip-types scripts/verify-linking.ts",
     "enrich-posters": "node --experimental-strip-types scripts/enrich-posters.ts",
