@@ -26,11 +26,11 @@ export const REGION_NOTES: Record<Region, string> = {
   bs: "BS11・ABEMA・dアニメストア など全国系を優先",
 };
 
-// 全国放送（BS/NHK）。地域局の後ろに付ける。これらは「放送局」として番組表に出す。
-const BROADCAST_TAIL = [
-  "NHK総合",
-  "NHK Eテレ",
-  "NHK",
+// 地上波の全国放送（NHK）。地上波なので全地域で「放送局」として番組表に出す。
+const NHK_TERRESTRIAL = ["NHK総合", "NHK Eテレ", "NHK"];
+
+// BS/衛星。BS・配信地域でのみ番組表・この後・カレンダーに出す（地上波地域には出さない）。
+const BS_CHANNELS = [
   "BS11",
   "BSフジ",
   "BS日テレ",
@@ -42,8 +42,8 @@ const BROADCAST_TAIL = [
   "WOWOW",
 ];
 
-// 番組表・「この後の放送」には出さないチャンネル。カレンダーの最終フォールバックには使う。
-// ネット配信（放送局ではない）に加え、AT-X（CS有料）もユーザー方針でここに分類する。
+// 番組表・「この後の放送」・カレンダーには出さないチャンネル（ネット配信＋AT-X(CS有料)）。
+// 代表チャンネルのランク付け・将来用途のため名前は保持する。
 const STREAMING = [
   "AT-X",
   "ABEMA",
@@ -59,8 +59,6 @@ const STREAMING = [
   "バンダイチャンネル",
   "ニコニコ",
 ];
-
-const NATIONWIDE_TAIL = [...BROADCAST_TAIL, ...STREAMING];
 
 // 各地域で優先する地上波局（上にあるほど優先）。
 const REGION_LOCALS: Record<Region, string[]> = {
@@ -103,33 +101,35 @@ const REGION_LOCALS: Record<Region, string[]> = {
   bs: [],
 };
 
-/** 地域ごとの優先順リスト（地域局 → 全国系）。 */
-function priorityFor(region: Region): string[] {
-  return [...REGION_LOCALS[region], ...NATIONWIDE_TAIL];
+/**
+ * その地域で「番組表・この後の放送・カレンダー」に出してよいチャンネル列（優先度順）。
+ * - 地上波地域(関東/関西/中部): 地域の地上波ローカル ＋ NHK(地上波)。BS・配信は出さない。
+ * - BS・配信: NHK(地上波) ＋ BS。
+ */
+function displayList(region: Region): string[] {
+  if (region === "bs") return [...NHK_TERRESTRIAL, ...BS_CHANNELS];
+  return [...REGION_LOCALS[region], ...NHK_TERRESTRIAL];
 }
 
 /**
  * チャンネル名の、指定地域における優先度（小さいほど優先）。
- * 一致しないチャンネルでも必ず数値を返す（＝候補から落とさない）。
+ * 表示対象 → 表示対象外の放送波 → 配信 の順。一致しなくても必ず数値を返す（ソート用）。
  */
 export function channelRank(name: string | null | undefined, region: Region): number {
   if (!name) return 9999;
-  const list = priorityFor(region);
-  const i = list.findIndex((p) => name.includes(p));
+  const i = displayList(region).findIndex((p) => name.includes(p));
   if (i >= 0) return i;
-  // リストに無い地方局など。全国系より後ろ・名前未定より前。
-  return 9000;
+  if (isStreamingChannel(name)) return 9500; // 配信・AT-X は最後尾
+  return 9000; // 表示対象外の放送波（地域外ローカル・地上波地域でのBS など）
 }
 
 /**
- * 「この後の放送」「番組表」に表示してよいチャンネルか。
- * = その地域の地上波局 または 全国放送(BS/CS/NHK)。
- * ネット配信（ABEMA等）と、地域外の地方ローカル局（優先リスト未掲載）は false。
+ * 「この後の放送」「番組表」「カレンダー」に表示してよいチャンネルか。
+ * = その地域で実際に視聴できる放送局のみ（地上波地域はBS・配信を含めない）。
  */
 export function isDisplayChannel(name: string | null | undefined, region: Region): boolean {
   if (!name) return false;
-  const limit = REGION_LOCALS[region].length + BROADCAST_TAIL.length;
-  return channelRank(name, region) < limit;
+  return displayList(region).some((p) => name.includes(p));
 }
 
 /**
