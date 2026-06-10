@@ -3,7 +3,7 @@ import type {
   EpisodeReactionMix,
   WorkMoment,
 } from "@/lib/analytics/workReactions";
-import { REACTION_META } from "./MinuteHeatChart";
+import { REACTION_META } from "./reactions";
 
 /**
  * 作品別リアクション分析の表示部品（静的SVG/マークアップ）。
