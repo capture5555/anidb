@@ -8,7 +8,9 @@ import { WorkCover } from "@/components/WorkCover";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SubscribeButton } from "@/components/SubscribeButton";
 import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
+import { CohortPositionPanel } from "@/components/charts/CohortPositionPanel";
 import { getWorkAnalysis } from "@/lib/analytics/viewing";
+import { getWorkCohortPosition } from "@/lib/analytics/scorecard";
 import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
 import { pickOnePerEpisode } from "@/lib/programs";
@@ -51,6 +53,8 @@ export default async function WorkDetailPage({
 
   // 視聴分析データ（実況の盛り上がり・継続率・全話）。seedモード等では黙ってスキップ
   const analysis = await getWorkAnalysis(id).catch(() => null);
+  // クール内ポジション（偏差値カルテ）。母数に入らなければ null
+  const cohort = await getWorkCohortPosition(id).catch(() => null);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -146,6 +150,7 @@ export default async function WorkDetailPage({
                 <h2 className="text-base font-black text-accent">視聴分析</h2>
                 <span className="text-[0.7rem] text-muted">ニコニコ実況・Annict 由来の参考値</span>
               </div>
+              {cohort && <CohortPositionPanel position={cohort} />}
               <WorkAnalysisSections analysis={analysis} />
             </div>
           )}

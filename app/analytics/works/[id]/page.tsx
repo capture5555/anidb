@@ -3,7 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getWorkAnalysis } from "@/lib/analytics/viewing";
+import { getWorkCohortPosition } from "@/lib/analytics/scorecard";
 import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
+import { CohortPositionPanel } from "@/components/charts/CohortPositionPanel";
 import { WorkCover } from "@/components/WorkCover";
 
 export async function generateMetadata({
@@ -24,6 +26,8 @@ export default async function WorkAnalyticsPage({
   const { id } = await params;
   const analysis = await getWorkAnalysis(id).catch(() => null);
   if (!analysis) notFound();
+
+  const cohort = await getWorkCohortPosition(id).catch(() => null);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -59,6 +63,7 @@ export default async function WorkAnalyticsPage({
       </header>
 
       <div className="space-y-5 py-5">
+        {cohort && <CohortPositionPanel position={cohort} />}
         <WorkAnalysisSections analysis={analysis} />
 
         <p className="text-xs text-muted leading-relaxed">

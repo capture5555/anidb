@@ -320,6 +320,11 @@ async function ScorecardSection() {
     .sort((a, b) => b.darkhorse - a.darkhorse)
     .slice(0, 5);
 
+  // スリーパー（過小評価）/ 話題先行：スリーパーを先頭に
+  const flagged = card.works
+    .filter((w) => w.sleeper || w.overhyped)
+    .sort((a, b) => Number(b.sleeper) - Number(a.sleeper));
+
   const quadrants: Quadrant[] = ["royal", "wordofmouth", "fastburn", "niche"];
 
   return (
@@ -422,6 +427,41 @@ async function ScorecardSection() {
                 </span>
                 <span className="text-sm font-black text-accent tabular-nums shrink-0 w-10 text-right">
                   +{w.darkhorse}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {/* スリーパー（過小評価）/ 話題先行 */}
+      {flagged.length > 0 && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">スリーパー（過小評価）/ 話題先行</h2>
+          <p className="text-xs text-muted mb-4">
+            <strong>過小評価</strong>＝評価は高いが認知が低い（発掘・先行投資の候補）。
+            <strong>話題先行</strong>＝認知は高いが評価が伴わない。いずれも認知・評価の偏差値で判定しています。
+          </p>
+          <ol className="space-y-2">
+            {flagged.map((w) => (
+              <li key={w.workId} className="flex items-center gap-3">
+                <Link
+                  href={`/analytics/works/${w.workId}`}
+                  className="flex-1 min-w-0 text-sm font-medium text-ink hover:text-primary transition truncate"
+                >
+                  {w.title}
+                </Link>
+                <span className="text-xs text-muted tabular-nums shrink-0">
+                  認知{w.awarenessDev.toFixed(0)} / 評価{w.scoreDev != null ? w.scoreDev.toFixed(0) : "—"}
+                </span>
+                <span
+                  className={`shrink-0 text-[0.66rem] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                    w.sleeper
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-paper text-muted border border-line"
+                  }`}
+                >
+                  {w.sleeper ? "過小評価" : "話題先行"}
                 </span>
               </li>
             ))}
