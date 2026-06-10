@@ -149,9 +149,14 @@ async function getStudioScorecardsUncached(opts?: {
         (batting average の分母となる cohort median)
      ---------------------------------------------------------------- */
   // 全作品のスコアを season_year+season_name キーでグループ化
+  // （people.ts と同様に work_id で重複排除してから集計。共作で同一作品が
+  //  複数の制作クレジット行に出ても中央値を歪めないようにする）
   const scoresBySeason = new Map<string, number[]>();
+  const seenSeasonWork = new Set<string>();
   for (const row of rows) {
     const w = row.works as WorkRow;
+    if (seenSeasonWork.has(w.id)) continue;
+    seenSeasonWork.add(w.id);
     const score = resolveScore(w);
     if (score == null || !w.season_year || !w.season_name) continue;
     const key = `${w.season_year}|${w.season_name}`;
