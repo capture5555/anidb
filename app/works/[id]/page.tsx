@@ -1,16 +1,18 @@
 export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "@/components/WorkCover";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SubscribeButton } from "@/components/SubscribeButton";
-import { MinuteHeatChart } from "@/components/charts/MinuteHeatChart";
-import { getWorkHeat } from "@/lib/analytics/viewing";
+import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
+import { getWorkAnalysis } from "@/lib/analytics/viewing";
 import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
 import { pickOnePerEpisode } from "@/lib/programs";
+import { parseRegion, REGION_COOKIE } from "@/lib/regions";
 
 export async function generateMetadata({
   params,
@@ -35,8 +37,10 @@ export default async function WorkDetailPage({
   const work = await (await getDataProvider()).getWork(id);
   if (!work) notFound();
 
-  // 系列局の同時ネットで同じ話数が並ぶため、1話1件（キー局代表）に整理
-  const repPrograms = pickOnePerEpisode(work.programs.filter((p) => !p.isRebroadcast));
+  const region = parseRegion((await cookies()).get(REGION_COOKIE)?.value);
+
+  // 系列局の同時ネットで同じ話数が並ぶため、1話1件（地域の代表局）に整理
+  const repPrograms = pickOnePerEpisode(work.programs.filter((p) => !p.isRebroadcast), region);
   const firstProgram = repPrograms[0] ?? work.programs[0] ?? null;
   const upcomingPrograms = repPrograms
     .filter((p) => new Date(p.startAt).getTime() >= Date.now() - 1000 * 60 * 60 * 24)
@@ -45,8 +49,8 @@ export default async function WorkDetailPage({
     work.programs.filter((p) => p.channelName).map((p) => p.channelName),
   ).size;
 
-  // 実況の盛り上がりデータ（seedモード等では黙ってスキップ）
-  const heat = await getWorkHeat(id).catch(() => null);
+  // 視聴分析データ（実況の盛り上がり・継続率・全話）。seedモード等では黙ってスキップ
+  const analysis = await getWorkAnalysis(id).catch(() => null);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -135,25 +139,15 @@ export default async function WorkDetailPage({
             </section>
           )}
 
-          {/* 盛り上がりグラフ（実況コメント） */}
-          {heat && (
-            <section className="card p-5 sm:p-6">
-              <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
-                <h2 className="section-title text-lg">実況の盛り上がり</h2>
-                <Link
-                  href={`/analytics/works/${work.id}`}
-                  className="text-xs font-bold text-primary hover:underline underline-offset-2"
-                >
-                  全話の分析を見る →
-                </Link>
+          {/* 視聴分析（実況の盛り上がり・継続率・全話） */}
+          {analysis && (
+            <div className="space-y-5">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-black text-accent">視聴分析</h2>
+                <span className="text-[0.7rem] text-muted">ニコニコ実況・Annict 由来の参考値</span>
               </div>
-              <p className="text-xs text-muted mb-4">
-                {heat.episodeLabel ?? "直近放送回"}
-                {heat.channelName && `（${heat.channelName}）`} ・ ニコニコ実況の分単位コメント数
-                ・ 計{heat.totalComments.toLocaleString()}コメント
-              </p>
-              <MinuteHeatChart points={heat.points} peaks={heat.peaks} />
-            </section>
+              <WorkAnalysisSections analysis={analysis} />
+            </div>
           )}
 
           {/* エピソード */}

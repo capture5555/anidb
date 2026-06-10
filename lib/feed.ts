@@ -4,6 +4,8 @@ import { getDataProvider } from "./data/provider.ts";
 import { buildEvent } from "./sync/eventBuilder.ts";
 import { pickOnePerEpisode } from "./programs.ts";
 import { buildIcs, type IcsEvent } from "./ics.ts";
+import { DEFAULT_REGION, type Region } from "./regions.ts";
+import { getUserRegion } from "./userRegion.ts";
 import type { Program, WorkDetail } from "./types.ts";
 
 /**
@@ -59,7 +61,7 @@ function appUrl(): string {
 }
 
 /** 1作品ぶんの放送回を窓でフィルタし、ICSイベントへ変換する */
-function workToEvents(work: WorkDetail, opts: FeedOptions): IcsEvent[] {
+function workToEvents(work: WorkDetail, opts: FeedOptions, region: Region = DEFAULT_REGION): IcsEvent[] {
   const now = Date.now();
   const from = now - PAST_DAYS * 86400000;
   const to = now + FUTURE_DAYS * 86400000;
@@ -67,8 +69,8 @@ function workToEvents(work: WorkDetail, opts: FeedOptions): IcsEvent[] {
     const t = new Date(p.startAt).getTime();
     return t >= from && t <= to && !p.isRebroadcast;
   });
-  // 系列局の同時ネットは1話1件（キー局代表）に集約
-  return pickOnePerEpisode(inWindow).map((program) => {
+  // 系列局の同時ネットは1話1件（住んでいる地域の代表局）に集約
+  return pickOnePerEpisode(inWindow, region).map((program) => {
     const episode = work.episodes.find((e) => e.id === program.episodeId) ?? null;
     const ev = buildEvent(work, program, episode, opts, appUrl());
     return {
@@ -86,6 +88,7 @@ function workToEvents(work: WorkDetail, opts: FeedOptions): IcsEvent[] {
 export async function buildUserFeed(userId: string): Promise<string> {
   const db = getAdminClient();
   const provider = await getDataProvider();
+  const region = await getUserRegion(userId);
   const { data: subs } = await db
     .from("subscriptions")
     .select("work_id, mode, include_subtitle, include_channel, include_url")
@@ -97,12 +100,16 @@ export async function buildUserFeed(userId: string): Promise<string> {
     const work = await provider.getWork(row.work_id);
     if (!work) continue;
     events.push(
-      ...workToEvents(work, {
-        mode: row.mode,
-        includeSubtitle: row.include_subtitle,
-        includeChannel: row.include_channel,
-        includeUrl: row.include_url,
-      }),
+      ...workToEvents(
+        work,
+        {
+          mode: row.mode,
+          includeSubtitle: row.include_subtitle,
+          includeChannel: row.include_channel,
+          includeUrl: row.include_url,
+        },
+        region,
+      ),
     );
   }
   events.sort((a, b) => a.startISO.localeCompare(b.startISO));

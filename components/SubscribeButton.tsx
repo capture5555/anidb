@@ -3,8 +3,28 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import type { SubscriptionMode } from "@/lib/types";
+import {
+  REGION_KEYS,
+  REGION_LABELS,
+  REGION_NOTES,
+  REGION_COOKIE,
+  DEFAULT_REGION,
+  parseRegion,
+  type Region,
+} from "@/lib/regions";
 
 type Phase = "idle" | "choosing" | "need-auth" | "submitting" | "done" | "error";
+
+function readRegionCookie(): Region {
+  if (typeof document === "undefined") return DEFAULT_REGION;
+  const m = document.cookie.match(new RegExp(`(?:^|; )${REGION_COOKIE}=([^;]+)`));
+  return parseRegion(m ? decodeURIComponent(m[1]) : null);
+}
+
+function writeRegionCookie(region: Region) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${REGION_COOKIE}=${region}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+}
 
 /**
  * 作品を「選択リスト」へ登録するボタン。
@@ -28,6 +48,7 @@ export function SubscribeButton({
 
   // 選択状態
   const [mode, setMode] = useState<SubscriptionMode>("per_episode");
+  const [region, setRegion] = useState<Region>(() => readRegionCookie());
   const [includeSubtitle, setIncludeSubtitle] = useState(true);
   const [includeChannel, setIncludeChannel] = useState(true);
   const [includeUrl, setIncludeUrl] = useState(true);
@@ -50,7 +71,7 @@ export function SubscribeButton({
       const res = await fetch("/api/subscriptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workId, mode, includeSubtitle, includeChannel, includeUrl }),
+        body: JSON.stringify({ workId, mode, region, includeSubtitle, includeChannel, includeUrl }),
       });
       if (res.status === 401) {
         setPhase("need-auth");
@@ -61,6 +82,7 @@ export function SubscribeButton({
         throw new Error(body.error ?? `登録に失敗しました (${res.status})`);
       }
       const data = await res.json();
+      writeRegionCookie(region); // TOPの「この後の放送」も同じ地域に揃える
       setDemo(Boolean(data.demo));
       setCreated(data.created ?? 0);
       setPhase("done");
@@ -68,7 +90,7 @@ export function SubscribeButton({
       setError(e instanceof Error ? e.message : "不明なエラー");
       setPhase("error");
     }
-  }, [workId, mode, includeSubtitle, includeChannel, includeUrl]);
+  }, [workId, mode, region, includeSubtitle, includeChannel, includeUrl]);
 
   const close = () => {
     setOpen(false);
@@ -133,6 +155,22 @@ export function SubscribeButton({
 
               {phase === "choosing" && (
                 <div className="space-y-5">
+                  <Field label="お住まいの地域（放送局）">
+                    <div className="grid grid-cols-2 gap-2">
+                      {REGION_KEYS.map((r) => (
+                        <Choice key={r} active={region === r} onClick={() => setRegion(r)}>
+                          {REGION_LABELS[r]}
+                          <span className="block text-[0.62rem] text-muted mt-0.5 leading-tight font-normal">
+                            {REGION_NOTES[r]}
+                          </span>
+                        </Choice>
+                      ))}
+                    </div>
+                    <p className="text-[0.68rem] text-muted mt-1.5 leading-relaxed">
+                      同じ回が複数局で放送される作品は、選んだ地域の局を予定に入れます。
+                    </p>
+                  </Field>
+
                   <Field label="予定の単位">
                     <div className="flex gap-2">
                       <Choice active={mode === "per_episode"} onClick={() => setMode("per_episode")}>

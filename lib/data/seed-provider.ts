@@ -9,6 +9,7 @@ import type {
 } from "../types.ts";
 import { nextSeason, seasonOf, seasonSlug } from "../season.ts";
 import { airSlot } from "../format.ts";
+import type { Region } from "../regions.ts";
 import type { ScheduleEntry } from "../types.ts";
 
 function toSummary(w: WorkDetail): WorkSummary {
@@ -133,7 +134,7 @@ export class SeedDataProvider implements DataProvider {
     return entries;
   }
 
-  async getUpcomingBroadcasts(limit: number): Promise<ScheduleEntry[]> {
+  async getUpcomingBroadcasts(limit: number, _region?: Region): Promise<ScheduleEntry[]> {
     const all = await this.getSchedule();
     return all.sort((a, b) => a.startAt.localeCompare(b.startAt)).slice(0, limit);
   }

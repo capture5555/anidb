@@ -3,6 +3,8 @@ import { isGoogleConfigured } from "@/lib/google/oauth";
 import { getSession } from "@/lib/session";
 import { getDataProvider } from "@/lib/data/provider";
 import { pickOnePerEpisode } from "@/lib/programs";
+import { parseRegion, type Region } from "@/lib/regions";
+import { setUserRegion } from "@/lib/userRegion";
 import type { Program, SubscriptionMode } from "@/lib/types";
 
 const HORIZON_DAYS = 120;
@@ -13,18 +15,19 @@ interface Body {
   includeSubtitle?: boolean;
   includeChannel?: boolean;
   includeUrl?: boolean;
+  region?: string;
 }
 
 /** フィードに載る予定の放送回数（登録直後のフィードバック表示用） */
-function countFuturePrograms(programs: Program[]): number {
+function countFuturePrograms(programs: Program[], region: Region): number {
   const now = Date.now();
   const horizon = now + HORIZON_DAYS * 86400000;
   const inWindow = programs.filter((p) => {
     const t = new Date(p.startAt).getTime();
     return t >= now - 86400000 && t <= horizon && !p.isRebroadcast;
   });
-  // 系列局の同時ネットは1話1件に集約して数える
-  return pickOnePerEpisode(inWindow).length;
+  // 系列局の同時ネットは1話1件（地域代表）に集約して数える
+  return pickOnePerEpisode(inWindow, region).length;
 }
 
 export async function POST(req: NextRequest) {
@@ -38,6 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing_fields" }, { status: 400 });
   }
 
+  const region = parseRegion(body.region);
   const provider = await getDataProvider();
   const work = await provider.getWork(body.workId);
   if (!work) return NextResponse.json({ error: "work_not_found" }, { status: 404 });
@@ -45,7 +49,7 @@ export async function POST(req: NextRequest) {
   // --- デモモード（Google未設定）: 実登録せず、フィードに載る件数を返す ---
   if (!isGoogleConfigured()) {
     return NextResponse.json({
-      created: countFuturePrograms(work.programs),
+      created: countFuturePrograms(work.programs, region),
       demo: true,
     });
   }
@@ -79,8 +83,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "subscription_failed" }, { status: 500 });
   }
 
+  // 放送地域をユーザー設定として保存（フィードの代表局選択に使う）
+  await setUserRegion(session.userId, region);
+
   return NextResponse.json({
-    created: countFuturePrograms(work.programs),
+    created: countFuturePrograms(work.programs, region),
     subscriptionId: upserted.id,
     demo: false,
   });

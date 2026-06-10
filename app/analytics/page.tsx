@@ -17,8 +17,16 @@ import {
   getReactionRatios,
   type ReactionRatioWork,
 } from "@/lib/analytics/viewing";
+import {
+  getCoolScorecard,
+  QUADRANT_LABELS,
+  QUADRANT_NOTES,
+  type ScorecardWork,
+  type Quadrant,
+} from "@/lib/analytics/scorecard";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
+import { QuadrantScatter } from "@/components/charts/QuadrantScatter";
 import { SEASON_LABELS, SEASON_ORDER } from "@/lib/season";
 import { formatPopularity } from "@/lib/format";
 import { WorkCover } from "@/components/WorkCover";
@@ -55,7 +63,8 @@ export default async function AnalyticsPage({
   searchParams: Promise<{ view?: string; period?: string; basis?: string }>;
 }) {
   const sp = await searchParams;
-  const view = sp.view === "industry" ? "industry" : "viewing";
+  const view =
+    sp.view === "industry" ? "industry" : sp.view === "scorecard" ? "scorecard" : "viewing";
   const basis = sp.basis === "annict" ? "annict" : "jikkyo";
 
   return (
@@ -65,32 +74,34 @@ export default async function AnalyticsPage({
       </div>
 
       {/* タブ */}
-      <nav className="border-b-2 border-line mb-6">
+      <nav className="border-b-2 border-line mb-6 overflow-x-auto">
         <ul className="flex gap-1 -mb-[2px]">
-          <li>
-            <Link
-              href="/analytics"
-              className={`inline-block px-5 sm:px-7 py-2.5 font-bold text-[0.95rem] border-b-[3px] transition-colors ${
-                view === "viewing" ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink-soft"
-              }`}
-            >
-              視聴分析
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/analytics?view=industry"
-              className={`inline-block px-5 sm:px-7 py-2.5 font-bold text-[0.95rem] border-b-[3px] transition-colors ${
-                view === "industry" ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink-soft"
-              }`}
-            >
-              業界データ
-            </Link>
-          </li>
+          {[
+            { key: "viewing", href: "/analytics", label: "視聴分析" },
+            { key: "scorecard", href: "/analytics?view=scorecard", label: "クール診断" },
+            { key: "industry", href: "/analytics?view=industry", label: "業界データ" },
+          ].map((t) => (
+            <li key={t.key}>
+              <Link
+                href={t.href}
+                className={`inline-block whitespace-nowrap px-4 sm:px-7 py-2.5 font-bold text-[0.95rem] border-b-[3px] transition-colors ${
+                  view === t.key ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink-soft"
+                }`}
+              >
+                {t.label}
+              </Link>
+            </li>
+          ))}
         </ul>
       </nav>
 
-      {view === "viewing" ? <ViewingSection basis={basis} /> : <IndustrySection period={sp.period} />}
+      {view === "viewing" ? (
+        <ViewingSection basis={basis} />
+      ) : view === "scorecard" ? (
+        <ScorecardSection />
+      ) : (
+        <IndustrySection period={sp.period} />
+      )}
 
       <div className="h-16" />
     </div>
@@ -279,6 +290,215 @@ function RatioColumn({
       </ol>
       <p className="text-[0.62rem] text-muted mt-1.5">{label} = 該当コメント数 ÷ 総コメント数</p>
     </div>
+  );
+}
+
+/* ================================================================ クール診断 */
+
+async function ScorecardSection() {
+  const card = await getCoolScorecard().catch(() => null);
+
+  if (!card || card.works.length === 0) {
+    return (
+      <div className="card p-8 text-center text-sm text-muted">
+        クール診断に必要な実況データがまだ十分に集まっていません。収集が進むと表示されます。
+      </div>
+    );
+  }
+
+  const seasonLabel = `${card.year}年 ${SEASON_LABELS[card.season]}`;
+  const points = card.works.map((w) => ({
+    workId: w.workId,
+    title: w.title,
+    x: w.awarenessDev,
+    y: w.passionDev,
+    overall: w.overall,
+  }));
+
+  const darkhorses = card.works
+    .filter((w) => w.darkhorse > 0)
+    .sort((a, b) => b.darkhorse - a.darkhorse)
+    .slice(0, 5);
+
+  const quadrants: Quadrant[] = ["royal", "wordofmouth", "fastburn", "niche"];
+
+  return (
+    <div className="space-y-5">
+      {/* 概要 */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">クール診断（{seasonLabel}）</h2>
+        <p className="text-xs text-muted leading-relaxed">
+          今期の放送中作品を<strong>クール内で相対化</strong>し、認知規模・熱量・定着力・満足度から
+          総合偏差値（平均50）を算出。実況データのある<strong>{card.withData}作品</strong>が対象
+          （放送中 {card.totalAiring} 作品中）。
+          <br />
+          認知規模＝Annictウォッチャー数、熱量＝ニコニコ実況のコメント総数を代替指標としています。
+          検索量・SNS投稿量・タイムシフト比率は取得できないため算出していません。テレビ視聴率ではありません。
+        </p>
+      </section>
+
+      {/* 散布図 */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">認知度 × 熱量 マップ</h2>
+        <p className="text-xs text-muted mb-4">
+          横＝どれだけ広く知られているか、縦＝どれだけ濃く語られているか（どちらも偏差値）。
+          点の大きさは総合偏差値。点をクリックすると作品ページへ。
+        </p>
+        <QuadrantScatter points={points} />
+      </section>
+
+      {/* 偏差値ランキング表 */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">偏差値カルテ（総合順）</h2>
+        <p className="text-xs text-muted mb-4">
+          各指標はクール内の偏差値（平均50）。熱量密度＝コメント数÷認知規模（規模の割に濃く語られているか）。
+          定着＝直近話の実況コメント÷初回話。
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px] text-sm border-collapse">
+            <thead>
+              <tr className="text-xs text-muted border-b border-line">
+                <th className="text-left font-bold py-2 pr-2 w-7">#</th>
+                <th className="text-left font-bold py-2 pr-3">作品</th>
+                <Th>総合</Th>
+                <Th>認知</Th>
+                <Th>熱量</Th>
+                <Th>熱量密度</Th>
+                <Th>定着</Th>
+                <Th>満足</Th>
+                <th className="text-left font-bold py-2 pl-3 pr-2">タイプ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {card.works.slice(0, 24).map((w, i) => (
+                <tr key={w.workId} className="border-b border-line/60 hover:bg-paper/60">
+                  <td className="py-2 pr-2 text-xs text-muted tabular-nums">{i + 1}</td>
+                  <td className="py-2 pr-3">
+                    <Link
+                      href={`/works/${w.workId}`}
+                      className="font-medium text-ink hover:text-primary transition line-clamp-1"
+                    >
+                      {w.title}
+                    </Link>
+                  </td>
+                  <DevCell value={w.overall} strong />
+                  <DevCell value={w.awarenessDev} />
+                  <DevCell value={w.passionDev} />
+                  <DevCell value={w.densityDev} />
+                  <DevCell value={w.retentionDev} />
+                  <DevCell value={w.satisfactionDev} />
+                  <td className="py-2 pl-3 pr-2">
+                    <QuadrantTag q={w.quadrant} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ダークホース */}
+      {darkhorses.length > 0 && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">ダークホース指数 TOP</h2>
+          <p className="text-xs text-muted mb-4">
+            「熱量の順位 − 認知の順位」がプラスの作品＝<strong>知名度の割に濃く語られている</strong>。
+            伸びしろの目安です。
+          </p>
+          <ol className="space-y-2">
+            {darkhorses.map((w, i) => (
+              <li key={w.workId} className="flex items-center gap-3">
+                <span className={`w-5 text-right font-black tabular-nums shrink-0 ${i < 3 ? "text-accent" : "text-muted"}`}>
+                  {i + 1}
+                </span>
+                <Link
+                  href={`/works/${w.workId}`}
+                  className="flex-1 min-w-0 text-sm font-medium text-ink hover:text-primary transition truncate"
+                >
+                  {w.title}
+                </Link>
+                <span className="text-xs text-muted tabular-nums shrink-0">
+                  熱量{w.passionDev} / 認知{w.awarenessDev}
+                </span>
+                <span className="text-sm font-black text-accent tabular-nums shrink-0 w-10 text-right">
+                  +{w.darkhorse}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {/* 4象限の作品リスト */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-4">タイプ別の作品</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          {quadrants.map((q) => {
+            const list = card.works.filter((w) => w.quadrant === q);
+            return (
+              <div key={q} className="border border-line rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <QuadrantTag q={q} />
+                  <span className="text-xs text-muted tabular-nums">{list.length}作品</span>
+                </div>
+                <p className="text-[0.7rem] text-muted mb-2.5 leading-relaxed">{QUADRANT_NOTES[q]}</p>
+                <ul className="space-y-1">
+                  {list.slice(0, 6).map((w) => (
+                    <li key={w.workId} className="text-xs">
+                      <Link href={`/works/${w.workId}`} className="text-ink-soft hover:text-primary transition truncate block">
+                        ・{w.title}
+                      </Link>
+                    </li>
+                  ))}
+                  {list.length === 0 && <li className="text-xs text-muted">該当なし</li>}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <p className="text-xs text-muted leading-relaxed">
+        ※ 1クールのスナップショットに過ぎず、放送途中のため確定値ではありません。
+        各指標は各サービス利用者を母数とした参考値です。
+      </p>
+    </div>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return <th className="text-center font-bold py-2 px-1 w-14">{children}</th>;
+}
+
+function DevCell({ value, strong = false }: { value: number | null; strong?: boolean }) {
+  if (value == null) {
+    return <td className="py-2 px-1 text-center text-xs text-muted">—</td>;
+  }
+  // 50を基準に色付け（高い=朱寄り、低い=鈍色）
+  const hot = value >= 60;
+  const warm = value >= 50;
+  const color = hot ? "text-accent" : warm ? "text-ink" : "text-muted";
+  return (
+    <td className={`py-2 px-1 text-center tabular-nums ${strong ? "font-black" : "font-medium"} ${color}`}>
+      {value.toFixed(0)}
+    </td>
+  );
+}
+
+function QuadrantTag({ q }: { q: Quadrant }) {
+  const color: Record<Quadrant, string> = {
+    royal: "#e8482f",
+    wordofmouth: "#2ebd85",
+    fastburn: "#f5a623",
+    niche: "#9b59b6",
+  };
+  return (
+    <span
+      className="inline-block text-[0.66rem] font-bold px-2 py-0.5 rounded-full text-white whitespace-nowrap"
+      style={{ backgroundColor: color[q] }}
+    >
+      {QUADRANT_LABELS[q]}
+    </span>
   );
 }
 

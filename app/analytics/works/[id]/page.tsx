@@ -3,8 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getWorkAnalysis } from "@/lib/analytics/viewing";
-import { RetentionChart } from "@/components/charts/RetentionChart";
-import { EpisodeTrendChart, EpisodeHeatSelector } from "@/components/charts/WorkAnalysisPanel";
+import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
 import { WorkCover } from "@/components/WorkCover";
 
 export async function generateMetadata({
@@ -25,50 +24,6 @@ export default async function WorkAnalyticsPage({
   const { id } = await params;
   const analysis = await getWorkAnalysis(id).catch(() => null);
   if (!analysis) notFound();
-
-  // 残留率の比較シリーズ（実況コメント / Annict記録）
-  const retentionSeries = [];
-  if (analysis.episodes.length >= 2) {
-    const base = analysis.episodes[0].totalComments;
-    if (base > 0) {
-      retentionSeries.push({
-        workId: "jikkyo",
-        title: "実況コメント数（ニコニコ実況）",
-        posterUrl: null,
-        popularity: 0,
-        points: analysis.episodes.map((e, i) => ({
-          episodeNumber: i + 1,
-          numberText: e.episodeLabel,
-          records: e.totalComments,
-          pct: Math.round((e.totalComments / base) * 1000) / 10,
-        })),
-      });
-    }
-  }
-  if (analysis.annictPoints.length >= 2) {
-    retentionSeries.push({
-      workId: "annict",
-      title: "記録ユーザー数（Annict）",
-      posterUrl: null,
-      popularity: 0,
-      points: analysis.annictPoints,
-    });
-  }
-  if (analysis.satisfactionPoints.length >= 2) {
-    retentionSeries.push({
-      workId: "satisfaction",
-      title: "満足度（Annict・実数%）",
-      posterUrl: null,
-      popularity: 0,
-      kind: "percent" as const,
-      points: analysis.satisfactionPoints.map((p) => ({
-        episodeNumber: p.episodeNumber,
-        numberText: p.numberText,
-        records: 0,
-        pct: p.rate,
-      })),
-    });
-  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -104,40 +59,7 @@ export default async function WorkAnalyticsPage({
       </header>
 
       <div className="space-y-5 py-5">
-        {/* 話数別コメント数 */}
-        {analysis.episodes.length > 0 && (
-          <section className="card p-5 sm:p-6">
-            <h2 className="section-title text-lg mb-1">話数別の実況コメント数</h2>
-            <p className="text-xs text-muted mb-4">
-              各話の放送時に投稿されたニコニコ実況のコメント総数（複数チャンネル放送の場合は最多のチャンネル）。
-            </p>
-            <EpisodeTrendChart episodes={analysis.episodes} />
-          </section>
-        )}
-
-        {/* 残留率 */}
-        {retentionSeries.length > 0 && (
-          <section className="card p-5 sm:p-6">
-            <h2 className="section-title text-lg mb-1">視聴継続率と満足度</h2>
-            <p className="text-xs text-muted mb-4">
-              実線＝初回放送を100%としたときの推移（実況コメント数／Annict記録数）。
-              破線＝各話の満足度（Annictユーザーの「良い」評価率の実数%）。
-              「人は減ったが残った人の満足度は高い」といったパターンが見えます（テレビ視聴率ではありません）。
-            </p>
-            <RetentionChart series={retentionSeries} linkLegend={false} />
-          </section>
-        )}
-
-        {/* 全話の盛り上がり */}
-        {analysis.episodes.length > 0 && (
-          <section className="card p-5 sm:p-6">
-            <h2 className="section-title text-lg mb-1">放送回ごとの盛り上がり</h2>
-            <p className="text-xs text-muted mb-4">
-              話数を選ぶと、その回の分単位コメント数とリアクション内訳が見られます。▲はピーク。
-            </p>
-            <EpisodeHeatSelector episodes={analysis.episodes} />
-          </section>
-        )}
+        <WorkAnalysisSections analysis={analysis} />
 
         <p className="text-xs text-muted leading-relaxed">
           ※ データソース: ニコニコ実況 過去ログAPI・Annict。各サービスの利用者を母数とした参考値です。

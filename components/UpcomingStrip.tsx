@@ -1,25 +1,32 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "./WorkCover";
 import { SubscribeButton } from "./SubscribeButton";
+import { RegionSelector } from "./RegionSelector";
 import { formatAirShort } from "@/lib/format";
+import { parseRegion, REGION_COOKIE } from "@/lib/regions";
 
-/** TOPページの「この後の放送」ミニ番組表（直近に放送される作品を早い順に） */
+/** TOPページの「この後の放送」ミニ番組表（直近に放送される作品を早い順に・地域別） */
 export async function UpcomingStrip() {
+  const region = parseRegion((await cookies()).get(REGION_COOKIE)?.value);
   const provider = await getDataProvider();
-  const items = await provider.getUpcomingBroadcasts(10).catch(() => []);
+  const items = await provider.getUpcomingBroadcasts(10, region).catch(() => []);
   if (items.length === 0) return null;
 
   return (
     <section className="mt-6">
       <div className="flex items-center gap-2 mb-2.5">
         <h2 className="section-title text-base">この後の放送</h2>
-        <Link
-          href="/schedule"
-          className="ml-auto text-xs font-bold text-primary hover:underline underline-offset-2"
-        >
-          番組表を見る →
-        </Link>
+        <div className="ml-auto flex items-center gap-3">
+          <RegionSelector initial={region} />
+          <Link
+            href="/schedule"
+            className="text-xs font-bold text-primary hover:underline underline-offset-2"
+          >
+            番組表を見る →
+          </Link>
+        </div>
       </div>
       <ul className="flex gap-2.5 overflow-x-auto pb-2 -mx-1 px-1">
         {items.map((e) => (
