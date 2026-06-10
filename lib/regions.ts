@@ -132,6 +132,15 @@ export function isDisplayChannel(name: string | null | undefined, region: Region
   return channelRank(name, region) < limit;
 }
 
+/**
+ * ネット配信（およびユーザー方針でカレンダーに出さない AT-X）かどうか。
+ * カレンダー(ICS)は「テレビ放送のみ」にするため、これが true のチャンネルは予定にしない。
+ */
+export function isStreamingChannel(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return STREAMING.some((s) => name.includes(s));
+}
+
 export function parseRegion(value: string | null | undefined): Region {
   if (value && (REGION_KEYS as string[]).includes(value)) return value as Region;
   return DEFAULT_REGION;
