@@ -13,6 +13,9 @@ const SOURCE = "nicojk";
 // JIKKYO_LOOKBACK_HOURS で過去ログのさかのぼり時間を上書きできる（バックフィル用）
 const LOOKBACK_HOURS = Number(process.env.JIKKYO_LOOKBACK_HOURS) || 26;
 const MIN_AGE_MINUTES = 45;
+// 実況収集の対象外チャンネル（jikkyo_id）。AT-X(jk333)は有料CSで実況が少なく
+// 代表チャンネル選定のノイズになるため除外（DB側でも 0009 で jikkyo_id を外している）。
+const EXCLUDED_JIKKYO_IDS = new Set<string>(["jk333"]);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const chunk = <T,>(arr: T[], size: number): T[][] => {
@@ -142,7 +145,7 @@ export async function collectJikkyo(): Promise<CollectJikkyoResult> {
   for (const p of targets) {
     const channel: any = p.channels;
     const jkId: string | null = channel?.jikkyo_id ?? null;
-    if (!jkId) {
+    if (!jkId || EXCLUDED_JIKKYO_IDS.has(jkId)) {
       await logCollection(db, p.id, "no_channel", 0, channel?.name ?? "channel unknown");
       result.noChannel++;
       continue;
