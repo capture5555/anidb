@@ -81,6 +81,7 @@ function workToEvents(work: WorkDetail, opts: FeedOptions, region: Region = DEFA
       endISO: ev.endISO,
       summary: ev.summary,
       description: ev.description,
+      location: ev.location,
     };
   });
 }

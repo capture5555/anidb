@@ -16,6 +16,8 @@ export interface IcsEvent {
   endISO: string;
   summary: string;
   description?: string;
+  /** 場所（LOCATION）。放送局名を入れる */
+  location?: string;
 }
 
 export interface IcsCalendarOptions {
@@ -83,6 +85,7 @@ export function buildIcs(events: IcsEvent[], opts: IcsCalendarOptions): string {
     push(`DTSTART:${toUtcStamp(ev.startISO)}`);
     push(`DTEND:${toUtcStamp(ev.endISO)}`);
     push(`SUMMARY:${escapeText(ev.summary)}`);
+    if (ev.location) push(`LOCATION:${escapeText(ev.location)}`);
     if (ev.description) push(`DESCRIPTION:${escapeText(ev.description)}`);
     push("END:VEVENT");
   }
