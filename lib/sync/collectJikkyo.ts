@@ -10,7 +10,8 @@ import { analyzeProgram, type ProgramAnalysis } from "../analytics/commentAnalys
  */
 
 const SOURCE = "nicojk";
-const LOOKBACK_HOURS = 26;
+// JIKKYO_LOOKBACK_HOURS で過去ログのさかのぼり時間を上書きできる（バックフィル用）
+const LOOKBACK_HOURS = Number(process.env.JIKKYO_LOOKBACK_HOURS) || 26;
 const MIN_AGE_MINUTES = 45;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

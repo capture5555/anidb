@@ -10,7 +10,7 @@ export default function NotFound() {
       </p>
       <Link
         href="/"
-        className="inline-block mt-7 border border-line-strong px-6 py-2.5 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition"
+        className="inline-block mt-7 border border-line-strong px-6 py-2.5 rounded-lg text-sm hover:bg-paper transition"
       >
         一覧へ戻る
       </Link>

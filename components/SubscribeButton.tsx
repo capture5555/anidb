@@ -82,14 +82,14 @@ export function SubscribeButton({
           onClick={openModal}
           title="カレンダーに登録"
           aria-label="カレンダーに登録"
-          className="inline-flex items-center justify-center w-8 h-8 border border-line-strong text-ink-soft rounded-[var(--radius-card)] hover:border-accent hover:text-accent transition-colors"
+          className="inline-flex items-center justify-center w-8 h-8 bg-surface border border-line-strong text-ink-soft rounded-lg hover:border-accent hover:text-accent transition-colors"
         >
           <CalendarGlyph />
         </button>
       ) : (
         <button
           onClick={openModal}
-          className="inline-flex items-center gap-2 bg-accent text-paper px-5 py-2.5 rounded-[var(--radius-card)] text-sm font-medium tracking-wide hover:bg-[var(--color-accent-soft)] transition-colors"
+          className="inline-flex items-center gap-2 bg-accent text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:opacity-90 transition shadow-sm"
         >
           <CalendarGlyph />
           カレンダーに登録
@@ -98,17 +98,17 @@ export function SubscribeButton({
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/30 px-3"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-3"
           onClick={close}
         >
           <div
-            className="w-full max-w-md bg-surface border border-line-strong rounded-[var(--radius-card)] shadow-[0_8px_40px_-12px_rgba(33,29,24,0.35)] max-h-[88vh] overflow-y-auto"
+            className="w-full max-w-md bg-surface rounded-xl shadow-2xl max-h-[88vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-6 py-5 border-b border-line flex items-start justify-between gap-4">
               <div>
                 <p className="kicker">カレンダー登録</p>
-                <h2 className="display text-lg mt-1 leading-snug">{workTitle}</h2>
+                <h2 className="font-black text-lg mt-1 leading-snug">{workTitle}</h2>
               </div>
               <button onClick={close} className="text-muted hover:text-ink text-xl leading-none mt-1">
                 ×
@@ -124,7 +124,7 @@ export function SubscribeButton({
                   </p>
                   <button
                     onClick={startAuth}
-                    className="mt-5 w-full bg-ink text-paper py-2.5 rounded-[var(--radius-card)] text-sm font-medium hover:opacity-90 transition"
+                    className="mt-5 w-full bg-ink text-white py-2.5 rounded-lg text-sm font-bold hover:opacity-90 transition"
                   >
                     Googleでログインして続ける
                   </button>
@@ -156,7 +156,7 @@ export function SubscribeButton({
 
                   <button
                     onClick={submit}
-                    className="w-full bg-accent text-paper py-2.5 rounded-[var(--radius-card)] text-sm font-medium hover:bg-[var(--color-accent-soft)] transition"
+                    className="w-full bg-accent text-white py-2.5 rounded-lg text-sm font-bold hover:opacity-90 transition"
                   >
                     登録する
                   </button>
@@ -171,7 +171,7 @@ export function SubscribeButton({
 
               {phase === "done" && (
                 <div className="py-4 text-center">
-                  <p className="display text-xl text-ink">登録しました</p>
+                  <p className="font-black text-xl text-ink">登録しました</p>
                   <p className="text-sm text-ink-soft mt-2 leading-relaxed">
                     {created} 件の放送予定がフィードに追加されます。
                     {demo ? (
@@ -190,14 +190,14 @@ export function SubscribeButton({
                     {!demo && (
                       <Link
                         href="/me"
-                        className="bg-ink text-paper px-5 py-2 rounded-[var(--radius-card)] text-sm hover:opacity-90 transition"
+                        className="bg-ink text-white px-5 py-2 rounded-lg text-sm font-bold hover:opacity-90 transition"
                       >
                         購読設定を確認
                       </Link>
                     )}
                     <button
                       onClick={close}
-                      className="border border-line-strong px-5 py-2 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition"
+                      className="border border-line-strong px-5 py-2 rounded-lg text-sm hover:bg-paper transition"
                     >
                       閉じる
                     </button>
@@ -210,7 +210,7 @@ export function SubscribeButton({
                   <p className="text-sm text-accent">{error}</p>
                   <button
                     onClick={() => setPhase("choosing")}
-                    className="mt-4 border border-line-strong px-5 py-2 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition"
+                    className="mt-4 border border-line-strong px-5 py-2 rounded-lg text-sm hover:bg-paper transition"
                   >
                     やり直す
                   </button>
@@ -245,8 +245,8 @@ function Choice({
   return (
     <button
       onClick={onClick}
-      className={`flex-1 text-left px-3 py-2 rounded-[var(--radius-card)] border text-sm transition ${
-        active ? "border-accent bg-accent/6 text-ink" : "border-line-strong text-ink-soft hover:border-line"
+      className={`flex-1 text-left px-3 py-2 rounded-lg border-2 text-sm font-medium transition ${
+        active ? "border-accent bg-accent/5 text-ink" : "border-line text-ink-soft hover:border-line-strong"
       }`}
     >
       {children}

@@ -1,19 +1,11 @@
 import type { Metadata } from "next";
-import { Shippori_Mincho, Zen_Kaku_Gothic_New } from "next/font/google";
+import { Noto_Sans_JP } from "next/font/google";
 import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 
-const mincho = Shippori_Mincho({
-  weight: ["500", "600", "700"],
-  subsets: ["latin"],
-  display: "swap",
-  preload: false,
-  variable: "--font-mincho",
-});
-
-const gothic = Zen_Kaku_Gothic_New({
-  weight: ["400", "500", "700"],
+const gothic = Noto_Sans_JP({
+  weight: ["400", "500", "700", "900"],
   subsets: ["latin"],
   display: "swap",
   preload: false,
@@ -33,7 +25,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ja" className={`${mincho.variable} ${gothic.variable}`}>
+    <html lang="ja" className={gothic.variable}>
       <body className="min-h-screen flex flex-col">
         <SiteHeader />
         <main className="flex-1">{children}</main>

@@ -106,7 +106,7 @@ export default function MyPage() {
 
       {/* カレンダー購読URL */}
       {feedUrl && (state === "ready" || state === "demo") && (
-        <div className="mt-8 border border-line rounded-[var(--radius-card)] bg-surface p-6">
+        <div className="mt-8 border border-line rounded-lg bg-surface p-6">
           <p className="kicker">カレンダー購読URL</p>
           {feedDemo && (
             <p className="mt-2 text-xs text-[var(--color-info)] leading-relaxed">
@@ -122,11 +122,11 @@ export default function MyPage() {
               readOnly
               value={feedUrl}
               onFocus={(e) => e.currentTarget.select()}
-              className="flex-1 min-w-0 border border-line-strong bg-paper rounded-[var(--radius-card)] px-3 py-2 text-xs text-ink-soft font-mono"
+              className="flex-1 min-w-0 border border-line-strong bg-paper rounded-lg px-3 py-2 text-xs text-ink-soft font-mono"
             />
             <button
               onClick={copyUrl}
-              className="shrink-0 bg-ink text-paper px-4 py-2 rounded-[var(--radius-card)] text-sm hover:opacity-90 transition"
+              className="shrink-0 bg-ink text-white px-4 py-2 rounded-lg text-sm hover:opacity-90 transition"
             >
               {copied ? "コピーしました" : "コピー"}
             </button>
@@ -156,14 +156,14 @@ export default function MyPage() {
                     <button
                       onClick={() => void regenerate()}
                       disabled={busy}
-                      className="bg-accent text-paper px-4 py-1.5 rounded-[var(--radius-card)] text-sm hover:bg-[var(--color-accent-soft)] transition disabled:opacity-40"
+                      className="bg-accent text-white px-4 py-1.5 rounded-lg text-sm hover:opacity-90 transition disabled:opacity-40"
                     >
                       再生成する
                     </button>
                     <button
                       onClick={() => setRegenConfirm(false)}
                       disabled={busy}
-                      className="border border-line-strong px-4 py-1.5 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition disabled:opacity-40"
+                      className="border border-line-strong px-4 py-1.5 rounded-lg text-sm hover:bg-paper transition disabled:opacity-40"
                     >
                       やめる
                     </button>
@@ -186,13 +186,13 @@ export default function MyPage() {
         {state === "loading" && <p className="text-muted text-sm">読み込み中…</p>}
 
         {state === "need-auth" && (
-          <div className="border border-line rounded-[var(--radius-card)] p-6 bg-surface">
+          <div className="border border-line rounded-lg p-6 bg-surface">
             <p className="text-ink-soft text-sm leading-relaxed">
               登録した作品を表示するには、Googleでのログイン（本人確認のみ・カレンダー権限は不要）が必要です。
             </p>
             <a
               href="/api/auth/google/start?returnTo=/me"
-              className="inline-block mt-4 bg-ink text-paper px-5 py-2.5 rounded-[var(--radius-card)] text-sm hover:opacity-90 transition"
+              className="inline-block mt-4 bg-ink text-white px-5 py-2.5 rounded-lg text-sm hover:opacity-90 transition"
             >
               Googleでログイン
             </a>
@@ -200,7 +200,7 @@ export default function MyPage() {
         )}
 
         {state === "demo" && (
-          <div className="border border-[var(--color-info)]/30 bg-[var(--color-info)]/8 rounded-[var(--radius-card)] p-6">
+          <div className="border border-[var(--color-info)]/30 bg-[var(--color-info)]/8 rounded-lg p-6">
             <p className="text-sm text-ink-soft leading-relaxed">
               現在はデモモード（Google連携が未設定）です。Google連携を設定すると、ここに登録済みの作品が一覧表示され、登録の解除などができます。
             </p>
@@ -218,7 +218,7 @@ export default function MyPage() {
             </p>
             <Link
               href="/"
-              className="inline-block mt-6 border border-line-strong px-5 py-2 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition"
+              className="inline-block mt-6 border border-line-strong px-5 py-2 rounded-lg text-sm hover:bg-paper transition"
             >
               作品を探す
             </Link>
@@ -239,7 +239,7 @@ export default function MyPage() {
                 </div>
                 <button
                   onClick={() => setTarget(s)}
-                  className="shrink-0 text-sm text-muted hover:text-accent border border-line-strong px-3 py-1.5 rounded-[var(--radius-card)] transition"
+                  className="shrink-0 text-sm text-muted hover:text-accent border border-line-strong px-3 py-1.5 rounded-lg transition"
                 >
                   登録解除
                 </button>
@@ -258,7 +258,7 @@ export default function MyPage() {
           onClick={() => !busy && setTarget(null)}
         >
           <div
-            className="w-full max-w-sm bg-surface border border-line-strong rounded-[var(--radius-card)] p-6"
+            className="w-full max-w-sm bg-surface border border-line-strong rounded-lg p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <p className="kicker">登録の解除</p>
@@ -272,7 +272,7 @@ export default function MyPage() {
               <button
                 onClick={() => void doUnsubscribe()}
                 disabled={busy}
-                className="w-full bg-accent text-paper py-2.5 rounded-[var(--radius-card)] text-sm font-medium hover:bg-[var(--color-accent-soft)] transition disabled:opacity-40"
+                className="w-full bg-accent text-white py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition disabled:opacity-40"
               >
                 登録を解除する
               </button>
@@ -290,7 +290,7 @@ export default function MyPage() {
       )}
 
       {toast && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-ink text-paper text-sm px-4 py-2.5 rounded-[var(--radius-card)] shadow-lg max-w-[90vw] text-center">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-ink text-white text-sm px-4 py-2.5 rounded-lg shadow-lg max-w-[90vw] text-center">
           {toast}
         </div>
       )}

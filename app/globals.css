@@ -1,34 +1,36 @@
 @import "tailwindcss";
 
 /* ============================================================
-   aniDB デザインシステム
-   コンセプト: オフホワイトの紙面のようなエディトリアル。
-   - 温かいオフホワイト地、明朝の見出し、ヘアライン罫。
-   - グラデーション/ガラス風/ネオン/絵文字多用などの「いかにもAI」な装飾は使わない。
-   - 余白を広く取り、活字の階層で情報を整理する。
+   aniDB デザインシステム v2
+   コンセプト: 実用本位のアニメ情報サイト。
+   - 白地＋薄グレー地、濃紺のヘッダー/フッター、太ゴシックの見出し。
+   - 朱（CTA）と青（リンク/情報）の2色を機能で使い分ける。
+   - 情報密度を上げ、装飾より一覧性を優先する。
    ============================================================ */
 
 @theme {
-  /* ---- 色（warm neutral + 抑えた朱の差し色） ---- */
-  --color-paper: #faf7f0; /* 地: 温かいオフホワイト */
-  --color-paper-deep: #f3efe4; /* 一段沈めた地 */
-  --color-surface: #fffdf8; /* カード等の面 */
-  --color-ink: #211d18; /* 本文: 温かい黒に近い茶墨 */
-  --color-ink-soft: #4a443b;
-  --color-muted: #8c8475; /* 補足テキスト */
-  --color-line: #e3ddcf; /* ヘアライン罫 */
-  --color-line-strong: #cfc7b4;
-  --color-accent: #b4432b; /* 差し色: 抑えた朱(べんがら) */
-  --color-accent-soft: #c9714f;
-  --color-good: #4f6f52; /* 放送中などの状態色(緑青) */
-  --color-info: #3f5a73; /* 放送予定(藍) */
+  /* ---- 色 ---- */
+  --color-paper: #f3f4f7; /* ページ地: 薄いクールグレー */
+  --color-paper-deep: #e8eaef; /* 一段沈めた地 */
+  --color-surface: #ffffff; /* カード等の面 */
+  --color-ink: #1b1f27; /* 本文 */
+  --color-ink-soft: #454c59;
+  --color-muted: #868d9a; /* 補足テキスト */
+  --color-line: #e3e6ec; /* 罫線 */
+  --color-line-strong: #c8cdd8;
+  --color-brand: #171e30; /* ヘッダー/フッターの濃紺 */
+  --color-brand-soft: #242e4a;
+  --color-primary: #2f6fdb; /* リンク・タブ・情報 */
+  --color-accent: #e8482f; /* CTA・強調・ライブ感 */
+  --color-accent-soft: #f08a76;
+  --color-good: #1f9d63; /* 放送中 */
+  --color-info: #2f6fdb; /* 放送予定 */
 
   /* ---- フォント（next/font から供給される変数を使用） ---- */
-  --font-sans: var(--font-gothic), "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
-  --font-serif: var(--font-mincho), "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --font-sans: var(--font-gothic), "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif;
 
-  /* ---- 角丸は控えめに（紙片感） ---- */
-  --radius-card: 2px;
+  /* ---- 角丸 ---- */
+  --radius-card: 10px;
 }
 
 html {
@@ -40,29 +42,45 @@ body {
   background-color: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  font-feature-settings: "palt" 1; /* 和文の詰め */
-  line-height: 1.8;
+  font-feature-settings: "palt" 1;
+  line-height: 1.7;
 }
 
-/* 見出しは明朝で品よく */
+/* 見出し: 太ゴシック（旧 .display 互換） */
 .font-serif,
 h1.display,
 .display {
-  font-family: var(--font-serif);
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-family: var(--font-sans);
+  font-weight: 800;
+  letter-spacing: 0.005em;
 }
 
-/* エディトリアルの「キッカー」(小見出しラベル) */
+/* 小見出しラベル（旧 .kicker 互換）: 小さめのグレー太字 */
 .kicker {
   font-size: 0.72rem;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--color-muted);
-  font-weight: 600;
+  font-weight: 700;
 }
 
-/* 縦書き混じりを避けたシンプルなリンク下線 */
+/* セクション見出し: 左に朱のバー */
+.section-title {
+  position: relative;
+  padding-left: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.005em;
+}
+.section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.18em;
+  bottom: 0.18em;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
 .link-underline {
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -70,17 +88,30 @@ h1.display,
   text-decoration-color: var(--color-line-strong);
 }
 .link-underline:hover {
-  text-decoration-color: var(--color-accent);
-  color: var(--color-accent);
+  text-decoration-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
-/* 罫線の入った定義リスト(スタッフ等) */
 .rule-row {
   border-top: 1px solid var(--color-line);
 }
 
-/* 選択時のハイライト色も世界観に合わせる */
+/* カードの基本（白面＋細罫＋ホバーで浮く） */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+}
+.card-hover {
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+.card-hover:hover {
+  box-shadow: 0 6px 20px rgba(23, 30, 48, 0.1);
+  border-color: var(--color-line-strong);
+  transform: translateY(-2px);
+}
+
 ::selection {
-  background: #ead9bf;
+  background: #cfdcf5;
   color: var(--color-ink);
 }

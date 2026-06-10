@@ -1,36 +1,29 @@
 import Link from "next/link";
 import type { ListTab } from "@/lib/types";
 
-const TABS: { key: ListTab; label: string; sub: string }[] = [
-  { key: "this_season", label: "今期", sub: "This season" },
-  { key: "next_season", label: "来期", sub: "Next season" },
-  { key: "movie", label: "映画", sub: "Movies" },
+const TABS: { key: ListTab; label: string }[] = [
+  { key: "this_season", label: "今期" },
+  { key: "next_season", label: "来期" },
+  { key: "movie", label: "映画" },
 ];
 
 export function SeasonTabs({ active }: { active: ListTab }) {
   return (
-    <nav className="border-b border-line">
-      <ul className="flex flex-wrap gap-x-7 gap-y-2 -mb-px">
+    <nav className="border-b-2 border-line">
+      <ul className="flex gap-1 -mb-[2px]">
         {TABS.map((t) => {
           const isActive = t.key === active;
           return (
             <li key={t.key}>
               <Link
                 href={t.key === "this_season" ? "/" : `/?tab=${t.key}`}
-                className={`group inline-flex flex-col pb-3 border-b-2 transition-colors ${
+                className={`inline-block px-5 sm:px-7 py-2.5 font-bold text-[0.95rem] border-b-[3px] transition-colors ${
                   isActive
                     ? "border-accent text-ink"
-                    : "border-transparent text-ink-soft hover:text-ink"
+                    : "border-transparent text-muted hover:text-ink-soft"
                 }`}
               >
-                <span className="display text-base sm:text-lg">{t.label}</span>
-                <span
-                  className={`text-[0.62rem] tracking-[0.2em] uppercase ${
-                    isActive ? "text-accent" : "text-muted"
-                  }`}
-                >
-                  {t.sub}
-                </span>
+                {t.label}
               </Link>
             </li>
           );

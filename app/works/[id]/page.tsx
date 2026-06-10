@@ -6,6 +6,8 @@ import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "@/components/WorkCover";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SubscribeButton } from "@/components/SubscribeButton";
+import { MinuteHeatChart } from "@/components/charts/MinuteHeatChart";
+import { getWorkHeat } from "@/lib/analytics/viewing";
 import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
 import { pickOnePerEpisode } from "@/lib/programs";
@@ -39,55 +41,69 @@ export default async function WorkDetailPage({
   const upcomingPrograms = repPrograms
     .filter((p) => new Date(p.startAt).getTime() >= Date.now() - 1000 * 60 * 60 * 24)
     .slice(0, 6);
-  // 放送局数（代表局＋ほかN局の表示用）
   const channelCount = new Set(
     work.programs.filter((p) => p.channelName).map((p) => p.channelName),
   ).size;
 
+  // 実況の盛り上がりデータ（seedモード等では黙ってスキップ）
+  const heat = await getWorkHeat(id).catch(() => null);
+
   return (
-    <div className="mx-auto max-w-5xl px-5 sm:px-8">
+    <div className="mx-auto max-w-6xl px-4 sm:px-6">
       {/* パンくず */}
-      <div className="pt-6 text-xs text-muted">
-        <Link href="/" className="hover:text-accent">
-          一覧
+      <div className="pt-4 text-xs text-muted">
+        <Link href="/" className="hover:text-primary">
+          作品一覧
         </Link>
-        <span className="mx-1.5">/</span>
+        <span className="mx-1.5">›</span>
         <span className="text-ink-soft">{work.title}</span>
       </div>
 
-      {/* ヘッダー */}
-      <header className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-7 sm:gap-9 pt-7 pb-10 border-b border-line">
+      {/* ヘッダーカード */}
+      <header className="card mt-3 p-5 sm:p-7 grid grid-cols-1 sm:grid-cols-[190px_1fr] gap-6 sm:gap-8">
         <WorkCover
           id={work.id}
           title={work.title}
           titleEn={work.titleEn}
           url={work.keyVisualUrl}
-          className="aspect-[3/4] w-40 sm:w-full rounded-[var(--radius-card)] border border-line"
+          className="aspect-[3/4] w-44 sm:w-full rounded-lg"
         />
-        <div className="flex flex-col">
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-2.5 flex-wrap">
             <StatusBadge status={work.status} />
-            <span className="text-sm text-muted">{formatSeason(work.seasonYear, work.seasonName)}</span>
-            {work.popularity > 0 && (
-              <span className="text-sm text-muted" title="Annictのウォッチャー数">
-                ♡ {work.popularity.toLocaleString("ja-JP")}
-              </span>
-            )}
+            <span className="text-sm text-muted font-medium">
+              {formatSeason(work.seasonYear, work.seasonName)}
+            </span>
           </div>
-          <h1 className="display text-3xl sm:text-4xl leading-tight mt-3">{work.title}</h1>
-          {work.titleEn && <p className="text-sm text-muted mt-1 tracking-wide">{work.titleEn}</p>}
+          <h1 className="text-2xl sm:text-3xl font-black leading-snug mt-2.5">{work.title}</h1>
+          {work.titleEn && <p className="text-sm text-muted mt-1">{work.titleEn}</p>}
 
           {work.genres.length > 0 && (
-            <ul className="flex flex-wrap gap-2 mt-4">
+            <ul className="flex flex-wrap gap-1.5 mt-3.5">
               {work.genres.map((g) => (
                 <li
                   key={g}
-                  className="text-xs text-ink-soft border border-line-strong rounded-full px-3 py-0.5"
+                  className="text-xs font-medium text-ink-soft bg-paper rounded-full px-3 py-1"
                 >
                   {g}
                 </li>
               ))}
             </ul>
+          )}
+
+          {/* 評価バー */}
+          {(work.popularity > 0 || work.anilistScore != null || work.malScore != null) && (
+            <div className="flex flex-wrap gap-x-7 gap-y-2 mt-5">
+              {work.popularity > 0 && (
+                <Metric label="国内人気（Annict）" value={work.popularity.toLocaleString()} unit="人" />
+              )}
+              {work.anilistScore != null && (
+                <Metric label="AniList" value={String(work.anilistScore)} unit="/100" />
+              )}
+              {work.malScore != null && (
+                <Metric label="MyAnimeList" value={work.malScore.toFixed(2)} unit="/10" />
+              )}
+            </div>
           )}
 
           <div className="mt-auto pt-6 flex flex-wrap items-center gap-4">
@@ -97,7 +113,7 @@ export default async function WorkDetailPage({
                 href={work.officialSiteUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm link-underline text-ink-soft"
+                className="text-sm font-bold text-primary hover:underline underline-offset-2"
               >
                 公式サイト ↗
               </a>
@@ -107,134 +123,116 @@ export default async function WorkDetailPage({
       </header>
 
       {/* 本文 2カラム */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-10 lg:gap-14 py-10">
-        <div className="space-y-12 min-w-0">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5 py-5">
+        <div className="space-y-5 min-w-0">
           {/* あらすじ */}
           {work.synopsis && (
-            <Section title="あらすじ" en="Story">
-              <p className="text-[0.97rem] leading-[2] text-ink-soft whitespace-pre-wrap">
+            <section className="card p-5 sm:p-6">
+              <h2 className="section-title text-lg mb-3">あらすじ</h2>
+              <p className="text-[0.95rem] leading-[1.9] text-ink-soft whitespace-pre-wrap">
                 {work.synopsis}
               </p>
-            </Section>
+            </section>
+          )}
+
+          {/* 盛り上がりグラフ（実況コメント） */}
+          {heat && (
+            <section className="card p-5 sm:p-6">
+              <h2 className="section-title text-lg mb-1">実況の盛り上がり</h2>
+              <p className="text-xs text-muted mb-4">
+                {heat.episodeLabel ?? "直近放送回"}
+                {heat.channelName && `（${heat.channelName}）`} ・ ニコニコ実況の分単位コメント数
+                ・ 計{heat.totalComments.toLocaleString()}コメント
+              </p>
+              <MinuteHeatChart points={heat.points} peaks={heat.peaks} />
+            </section>
           )}
 
           {/* エピソード */}
           {work.episodes.length > 0 && (
-            <Section title="エピソード" en="Episodes">
+            <section className="card p-5 sm:p-6">
+              <h2 className="section-title text-lg mb-3">エピソード</h2>
               <ul>
                 {work.episodes.map((ep) => (
                   <li
                     key={ep.id}
                     className="rule-row flex gap-4 py-2.5 items-baseline last:border-b last:border-line"
                   >
-                    <span className="display text-sm text-accent w-14 shrink-0 tabular-nums">
+                    <span className="font-bold text-sm text-primary w-14 shrink-0 tabular-nums">
                       {ep.numberText ?? `#${ep.number ?? ""}`}
                     </span>
-                    <span className="text-[0.92rem] text-ink-soft">
+                    <span className="text-[0.9rem] text-ink-soft">
                       {ep.title ?? <span className="text-muted">（サブタイトル未定）</span>}
                     </span>
                   </li>
                 ))}
               </ul>
-            </Section>
+            </section>
           )}
 
           {/* キャスト */}
           {work.casts.length > 0 && (
-            <Section title="キャスト" en="Cast">
+            <section className="card p-5 sm:p-6">
+              <h2 className="section-title text-lg mb-3">キャスト</h2>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
                 {work.casts.map((c) => (
                   <div key={c.id} className="rule-row flex justify-between gap-3 py-2.5">
-                    <dt className="text-[0.92rem] text-ink">{c.characterName}</dt>
-                    <dd className="text-[0.92rem] text-ink-soft text-right">{c.personName}</dd>
+                    <dt className="text-[0.9rem] font-medium text-ink">{c.characterName}</dt>
+                    <dd className="text-[0.9rem] text-ink-soft text-right">{c.personName}</dd>
                   </div>
                 ))}
               </dl>
-            </Section>
+            </section>
           )}
 
           {/* スタッフ */}
           {work.staff.length > 0 && (
-            <Section title="スタッフ" en="Staff">
+            <section className="card p-5 sm:p-6">
+              <h2 className="section-title text-lg mb-3">スタッフ</h2>
               <dl>
                 {work.staff.map((s) => (
                   <div key={s.id} className="rule-row flex gap-4 py-2.5">
-                    <dt className="text-[0.82rem] text-muted w-40 shrink-0">{s.role}</dt>
-                    <dd className="text-[0.92rem] text-ink-soft">{s.personName}</dd>
+                    <dt className="text-[0.8rem] text-muted w-40 shrink-0">{s.role}</dt>
+                    <dd className="text-[0.9rem] text-ink-soft">{s.personName}</dd>
                   </div>
                 ))}
               </dl>
-            </Section>
+            </section>
           )}
         </div>
 
-        {/* サイド: 評価 + 放送情報 */}
-        <aside className="lg:pt-1 space-y-5 lg:sticky lg:top-24">
-          {(work.popularity > 0 || work.anilistScore != null || work.malScore != null) && (
-            <div className="border border-line rounded-[var(--radius-card)] bg-surface p-5">
-              <p className="kicker">評価・人気 / Ratings</p>
-              <dl className="mt-3 space-y-3">
-                {work.popularity > 0 && (
-                  <div className="flex items-baseline justify-between">
-                    <dt className="text-xs text-muted">国内人気<span className="text-[0.65rem]">（Annict）</span></dt>
-                    <dd className="text-ink tabular-nums">
-                      <span className="display text-lg">{work.popularity.toLocaleString()}</span>
-                      <span className="text-xs text-muted"> 人</span>
-                    </dd>
-                  </div>
-                )}
-                {work.anilistScore != null && (
-                  <div className="flex items-baseline justify-between">
-                    <dt className="text-xs text-muted">海外スコア<span className="text-[0.65rem]">（AniList）</span></dt>
-                    <dd className="text-ink tabular-nums">
-                      <span className="display text-lg">{work.anilistScore}</span>
-                      <span className="text-xs text-muted"> / 100</span>
-                    </dd>
-                  </div>
-                )}
-                {work.malScore != null && (
-                  <div className="flex items-baseline justify-between">
-                    <dt className="text-xs text-muted">MAL<span className="text-[0.65rem]">（{work.malScoredBy ? `${work.malScoredBy.toLocaleString()}件` : "世界"}）</span></dt>
-                    <dd className="text-ink tabular-nums">
-                      <span className="display text-lg">{work.malScore.toFixed(2)}</span>
-                      <span className="text-xs text-muted"> / 10</span>
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </div>
-          )}
-
-          <div className="border border-line rounded-[var(--radius-card)] bg-surface p-5">
-            <p className="kicker">放送情報 / On air</p>
-            <dl className="mt-3 space-y-3 text-sm">
+        {/* サイド: 放送情報 */}
+        <aside className="space-y-5 lg:sticky lg:top-20 self-start w-full">
+          <div className="card p-5">
+            <h2 className="section-title text-base mb-3">放送情報</h2>
+            <dl className="space-y-3 text-sm">
               {firstProgram?.channelName && (
                 <div>
-                  <dt className="text-muted text-xs">放送局</dt>
-                  <dd className="text-ink-soft mt-0.5">
+                  <dt className="text-muted text-xs font-medium">放送局</dt>
+                  <dd className="text-ink mt-0.5 font-medium">
                     {firstProgram.channelName}
                     {channelCount > 1 && (
-                      <span className="text-muted"> ほか{channelCount - 1}局</span>
+                      <span className="text-muted font-normal"> ほか{channelCount - 1}局</span>
                     )}
                   </dd>
                 </div>
               )}
               {firstProgram && (
                 <div>
-                  <dt className="text-muted text-xs">放送時間</dt>
-                  <dd className="text-ink-soft mt-0.5">{formatWeekly(firstProgram.startAt)}</dd>
+                  <dt className="text-muted text-xs font-medium">放送時間</dt>
+                  <dd className="text-ink mt-0.5 font-medium">{formatWeekly(firstProgram.startAt)}</dd>
                 </div>
               )}
             </dl>
 
             {upcomingPrograms.length > 0 && (
-              <div className="mt-5 pt-5 border-t border-line">
-                <p className="text-xs text-muted mb-2">直近の放送予定</p>
+              <div className="mt-4 pt-4 border-t border-line">
+                <p className="text-xs font-bold text-muted mb-2">直近の放送予定</p>
                 <ul className="space-y-2">
                   {upcomingPrograms.map((p) => (
                     <li key={p.id} className="text-[0.82rem]">
                       <div className="flex justify-between gap-2">
-                        <span className="text-ink-soft tabular-nums">{formatAirShort(p.startAt)}</span>
+                        <span className="text-ink font-medium tabular-nums">{formatAirShort(p.startAt)}</span>
                         {p.count != null && <span className="text-muted">第{p.count}話</span>}
                       </div>
                       {p.channelName && (
@@ -252,22 +250,14 @@ export default async function WorkDetailPage({
   );
 }
 
-function Section({
-  title,
-  en,
-  children,
-}: {
-  title: string;
-  en: string;
-  children: React.ReactNode;
-}) {
+function Metric({ label, value, unit }: { label: string; value: string; unit: string }) {
   return (
-    <section>
-      <div className="flex items-baseline gap-3 mb-4">
-        <h2 className="display text-xl text-ink">{title}</h2>
-        <span className="kicker">{en}</span>
-      </div>
-      {children}
-    </section>
+    <div>
+      <p className="text-[0.68rem] text-muted font-medium">{label}</p>
+      <p className="text-ink tabular-nums">
+        <span className="text-xl font-black">{value}</span>
+        <span className="text-xs text-muted ml-0.5">{unit}</span>
+      </p>
+    </div>
   );
 }

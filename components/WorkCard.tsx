@@ -2,59 +2,45 @@ import Link from "next/link";
 import type { WorkSummary } from "@/lib/types";
 import { WorkCover } from "./WorkCover";
 import { StatusBadge } from "./StatusBadge";
-import { formatSeason } from "@/lib/season";
 import { formatPopularity } from "@/lib/format";
 
 export function WorkCard({ work }: { work: WorkSummary }) {
   return (
-    <Link href={`/works/${work.id}`} className="group block">
-      <article className="flex flex-col h-full">
-        <WorkCover
-          id={work.id}
-          title={work.title}
-          url={work.keyVisualUrl}
-          className="aspect-[3/4] w-full rounded-[var(--radius-card)] border border-line transition-shadow group-hover:border-line-strong"
-        />
-        <div className="pt-3 flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
+    <Link href={`/works/${work.id}`} className="group block h-full">
+      <article className="card card-hover overflow-hidden flex flex-col h-full">
+        <div className="relative">
+          <WorkCover
+            id={work.id}
+            title={work.title}
+            url={work.keyVisualUrl}
+            className="aspect-[3/4] w-full"
+          />
+          <div className="absolute top-2 left-2">
             <StatusBadge status={work.status} />
-            <span className="text-xs text-muted">
-              {formatSeason(work.seasonYear, work.seasonName)}
-            </span>
           </div>
-          <h3 className="display text-[1.02rem] leading-snug text-ink group-hover:text-accent transition-colors">
+          {work.popularity > 0 && (
+            <span
+              className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded bg-black/65 text-white text-[0.68rem] font-bold px-1.5 py-0.5 tabular-nums"
+              title={`ウォッチャー ${work.popularity.toLocaleString()}人`}
+            >
+              <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+                <path d="M8 14S1.5 9.7 1.5 5.5C1.5 3.5 3 2 4.8 2 6 2 7.2 2.7 8 3.8 8.8 2.7 10 2 11.2 2 13 2 14.5 3.5 14.5 5.5 14.5 9.7 8 14 8 14Z" />
+              </svg>
+              {formatPopularity(work.popularity)}
+            </span>
+          )}
+        </div>
+        <div className="p-3 flex flex-col gap-1 flex-1">
+          <h3 className="font-bold text-[0.92rem] leading-snug text-ink group-hover:text-primary transition-colors line-clamp-2">
             {work.title}
           </h3>
-          <div className="flex items-center justify-between gap-2">
-            {work.genres.length > 0 ? (
-              <p className="text-xs text-muted leading-relaxed truncate">
-                {work.genres.slice(0, 2).join("・")}
-              </p>
-            ) : (
-              <span />
-            )}
-            {work.popularity > 0 && (
-              <span className="shrink-0 inline-flex items-center gap-1 text-xs text-muted tabular-nums" title={`ウォッチャー ${work.popularity.toLocaleString()}人`}>
-                <HeartGlyph />
-                {formatPopularity(work.popularity)}
-              </span>
-            )}
-          </div>
+          {work.genres.length > 0 && (
+            <p className="text-[0.72rem] text-muted truncate mt-auto pt-1">
+              {work.genres.slice(0, 3).join("・")}
+            </p>
+          )}
         </div>
       </article>
     </Link>
-  );
-}
-
-function HeartGlyph() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path
-        d="M8 13.5C8 13.5 1.5 9.5 1.5 5.5C1.5 3.6 3 2.2 4.8 2.2C6 2.2 7.2 2.9 8 4C8.8 2.9 10 2.2 11.2 2.2C13 2.2 14.5 3.6 14.5 5.5C14.5 9.5 8 13.5 8 13.5Z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

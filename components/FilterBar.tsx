@@ -26,7 +26,7 @@ export function FilterBar({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <form method="get" action="/" className="flex items-center gap-2 max-w-md">
         {tab !== "this_season" && <input type="hidden" name="tab" value={tab} />}
         {genre && <input type="hidden" name="genre" value={genre} />}
@@ -35,23 +35,24 @@ export function FilterBar({
           name="q"
           defaultValue={q ?? ""}
           placeholder="作品名で検索"
-          className="flex-1 border border-line-strong bg-surface rounded-[var(--radius-card)] px-3.5 py-2 text-sm focus:outline-none focus:border-accent"
+          className="flex-1 border border-line-strong bg-surface rounded-lg px-3.5 py-2 text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         />
         <button
           type="submit"
-          className="border border-line-strong px-4 py-2 rounded-[var(--radius-card)] text-sm hover:bg-paper-deep transition"
+          className="bg-primary text-white font-bold px-4 py-2 rounded-lg text-sm hover:opacity-90 transition"
         >
           検索
         </button>
       </form>
 
       {genres.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="kicker mr-1">ジャンル</span>
+        <div className="flex flex-wrap items-center gap-1.5">
           <Link
             href={hrefWith({ genre: undefined })}
-            className={`text-xs px-3 py-1 rounded-full border transition ${
-              !genre ? "border-accent text-accent bg-accent/6" : "border-line-strong text-ink-soft hover:border-line"
+            className={`text-xs font-medium px-3 py-1 rounded-full transition ${
+              !genre
+                ? "bg-ink text-white"
+                : "bg-surface border border-line text-ink-soft hover:border-line-strong"
             }`}
           >
             すべて
@@ -60,10 +61,10 @@ export function FilterBar({
             <Link
               key={g}
               href={hrefWith({ genre: g })}
-              className={`text-xs px-3 py-1 rounded-full border transition ${
+              className={`text-xs font-medium px-3 py-1 rounded-full transition ${
                 genre === g
-                  ? "border-accent text-accent bg-accent/6"
-                  : "border-line-strong text-ink-soft hover:border-line"
+                  ? "bg-ink text-white"
+                  : "bg-surface border border-line text-ink-soft hover:border-line-strong"
               }`}
             >
               {g}
