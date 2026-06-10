@@ -81,15 +81,21 @@ async function getCohortReactionAverageUncached(): Promise<{ shares: CatShares; 
   try {
     const db = getAdminClient();
 
-    // 収集済み番組
-    const { data: logs } = await db
-      .from("analytics_collection_log")
-      .select("program_id, comment_count")
-      .eq("status", "collected")
-      .gt("comment_count", 0)
-      .limit(3000);
-    if (!logs || logs.length === 0) return { shares: zeroShares(), basis: 0 };
-    const programIds = logs.map((l) => l.program_id);
+    // 収集済み番組（ページネーションで全件取得）
+    const allLogs: { program_id: string; comment_count: number }[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db
+        .from("analytics_collection_log")
+        .select("program_id, comment_count")
+        .eq("status", "collected")
+        .gt("comment_count", 0)
+        .range(from, from + 999);
+      if (error) break;
+      allLogs.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    if (allLogs.length === 0) return { shares: zeroShares(), basis: 0 };
+    const programIds = allLogs.map((l) => l.program_id);
 
     // 番組 → 作品
     const workByProgram = new Map<string, string>();

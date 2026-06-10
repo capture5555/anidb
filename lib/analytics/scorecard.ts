@@ -247,13 +247,20 @@ async function buildScorecard(
   const workIds = workList.map((w) => w.id);
 
   // 2) 実況コメント（collected log）→ 番組→作品・話数へ
-  const { data: logs } = await db
-    .from("analytics_collection_log")
-    .select("program_id, comment_count")
-    .eq("status", "collected")
-    .gt("comment_count", 0)
-    .limit(5000);
-  const countByProgram = new Map((logs ?? []).map((l) => [l.program_id, l.comment_count]));
+  // ページネーションで全件取得（limit 打ち切りによるサイレント欠損を防ぐ）
+  const allLogs: { program_id: string; comment_count: number }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("analytics_collection_log")
+      .select("program_id, comment_count")
+      .eq("status", "collected")
+      .gt("comment_count", 0)
+      .range(from, from + 999);
+    if (error) break; // エラー時は取得済み分で続行
+    allLogs.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  const countByProgram = new Map(allLogs.map((l) => [l.program_id, l.comment_count]));
 
   // 対象作品の番組（話数別の代表＝最大コメント数のチャンネル）
   const epByWork = new Map<string, Map<string, { sort: number; count: number }>>();

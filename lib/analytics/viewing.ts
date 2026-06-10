@@ -128,14 +128,21 @@ export async function getRetentionSeries(limit = 8): Promise<RetentionResult> {
 export async function getJikkyoRetentionSeries(limit = 8): Promise<RetentionResult> {
   const db = getAdminClient();
 
-  const { data: logs } = await db
-    .from("analytics_collection_log")
-    .select("program_id, comment_count")
-    .eq("status", "collected")
-    .gt("comment_count", 0)
-    .limit(3000);
-  if (!logs || logs.length === 0) return { snapshotDate: null, series: [] };
-  const countByProgram = new Map(logs.map((l) => [l.program_id, l.comment_count]));
+  // ページネーションで全件取得（limit 打ち切りによるサイレント欠損を防ぐ）
+  const allLogs: { program_id: string; comment_count: number }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("analytics_collection_log")
+      .select("program_id, comment_count")
+      .eq("status", "collected")
+      .gt("comment_count", 0)
+      .range(from, from + 999);
+    if (error) break;
+    allLogs.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  if (allLogs.length === 0) return { snapshotDate: null, series: [] };
+  const countByProgram = new Map(allLogs.map((l) => [l.program_id, l.comment_count]));
 
   // 番組→作品/話数
   const progs: any[] = [];
@@ -329,15 +336,21 @@ export interface ReactionRatioWork {
 export async function getReactionRatios(minComments = 1000): Promise<ReactionRatioWork[]> {
   const db = getAdminClient();
 
-  // 収集済み番組の総コメント数
-  const { data: logs } = await db
-    .from("analytics_collection_log")
-    .select("program_id, comment_count")
-    .eq("status", "collected")
-    .gt("comment_count", 0)
-    .limit(3000);
-  if (!logs || logs.length === 0) return [];
-  const countByProgram = new Map(logs.map((l) => [l.program_id, l.comment_count]));
+  // 収集済み番組の総コメント数（ページネーションで全件取得）
+  const allLogs2: { program_id: string; comment_count: number }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("analytics_collection_log")
+      .select("program_id, comment_count")
+      .eq("status", "collected")
+      .gt("comment_count", 0)
+      .range(from, from + 999);
+    if (error) break;
+    allLogs2.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  if (allLogs2.length === 0) return [];
+  const countByProgram = new Map(allLogs2.map((l) => [l.program_id, l.comment_count]));
 
   // 番組→作品
   const workByProgram = new Map<string, string>();
@@ -468,15 +481,20 @@ export async function getPeakMoments(limit = 10): Promise<PeakMoment[]> {
   out.sort((a, b) => b.maxPerMinute - a.maxPerMinute);
   const ranked = out.slice(0, limit);
 
-  // ピーク分の代表コメント
-  for (const r of ranked) {
+  // ピーク分の代表コメント — 1クエリでまとめて取得（N+1 回避）
+  const peakRows: { program_id: string; minute_offset: number; comments: any[] }[] = [];
+  for (const ids of chunk(ranked.map((r) => r.programId), 100)) {
     const { data } = await db
       .from("analytics_peak_comments")
-      .select("comments")
-      .eq("program_id", r.programId)
-      .eq("minute_offset", r.minute)
-      .maybeSingle();
-    r.topComments = (data?.comments ?? []).slice(0, 3);
+      .select("program_id, minute_offset, comments")
+      .in("program_id", ids);
+    peakRows.push(...(data ?? []));
+  }
+  // program_id + minute_offset → comments のマップを作り、ranked に適用
+  const peakMap = new Map<string, any[]>();
+  for (const row of peakRows) peakMap.set(`${row.program_id}:${row.minute_offset}`, row.comments ?? []);
+  for (const r of ranked) {
+    r.topComments = (peakMap.get(`${r.programId}:${r.minute}`) ?? []).slice(0, 3);
   }
   return ranked;
 }
