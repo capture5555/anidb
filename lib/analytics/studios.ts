@@ -8,6 +8,7 @@
  */
 
 import { getAdminClient } from "../supabase/admin.ts";
+import { memoizeTTL } from "../cache.ts";
 
 /* ================================================================
    純関数（単体テスト可）
@@ -122,7 +123,7 @@ async function paginate(build: (from: number) => any): Promise<StaffWorkRow[]> {
  * @param opts.minScoredWorks ノイズフロア（デフォルト 3）
  * @param opts.limit          上位N件（avgScore 降順）。デフォルト 20。
  */
-export async function getStudioScorecards(opts?: {
+async function getStudioScorecardsUncached(opts?: {
   minScoredWorks?: number;
   limit?: number;
 }): Promise<StudioScorecard[]> {
@@ -264,3 +265,13 @@ export async function getStudioScorecards(opts?: {
 
   return scorecards.slice(0, limit);
 }
+
+/**
+ * スタジオ・スコアカード（opts 単位で30分メモ化）。エクスポート名・挙動は従来どおり。
+ * 全期間の work_staff × works を走査する重い集計をキャッシュする。
+ */
+export const getStudioScorecards = memoizeTTL(
+  getStudioScorecardsUncached,
+  (opts) => `studio:${opts?.minScoredWorks ?? 3}:${opts?.limit ?? 20}`,
+  1800000,
+);

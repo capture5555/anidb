@@ -8,6 +8,7 @@
 
 import { getAdminClient } from "../supabase/admin.ts";
 import { mean } from "./studios.ts";
+import { memoizeTTL } from "../cache.ts";
 
 export interface GenreInsight {
   genre: string;
@@ -28,7 +29,7 @@ function resolveScore(anilistScore: number | null, malScore: number | null): num
  * ジャンルごとの統計を返す。worksCount 降順でソート。
  * DB アクセスが失敗した場合は空配列を返す（UI を壊さない）。
  */
-export async function getGenreInsights(): Promise<GenreInsight[]> {
+async function getGenreInsightsUncached(): Promise<GenreInsight[]> {
   try {
     const db = getAdminClient();
 
@@ -92,3 +93,9 @@ export async function getGenreInsights(): Promise<GenreInsight[]> {
     return [];
   }
 }
+
+/**
+ * ジャンル動向（30分メモ化）。エクスポート名・挙動は従来どおり。
+ * work_genres を全ページ走査する重い集計をキャッシュする。
+ */
+export const getGenreInsights = memoizeTTL(getGenreInsightsUncached, () => "genres", 1800000);

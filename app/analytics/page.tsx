@@ -37,6 +37,7 @@ import { QuadrantScatter } from "@/components/charts/QuadrantScatter";
 import { SEASON_LABELS, SEASON_ORDER } from "@/lib/season";
 import { formatPopularity } from "@/lib/format";
 import { WorkCover } from "@/components/WorkCover";
+import { CsvExportButton } from "@/components/CsvExportButton";
 import type { Season } from "@/lib/types";
 
 export const metadata = { title: "アニメ分析" };
@@ -180,6 +181,28 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
         <RetentionChart series={retention.series} />
       </section>
 
+      {/* クール残留カーブ一覧（small multiples） */}
+      {retention.series.length > 0 && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">クール残留カーブ一覧</h2>
+          <p className="text-xs text-muted mb-4">
+            今期人気作の残留率カーブを一覧で並べたミニグラフ。1話を100%としたときの推移を作品横断でひと目で比較できます。
+            右端の数値は最新話の残留率。母数は
+            {basis === "annict" ? "Annictの記録ユーザー" : "ニコニコ実況のコメント"}（テレビ視聴率ではありません）。
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {retention.series.slice(0, 16).map((s) => (
+              <RetentionMiniCard
+                key={s.workId}
+                workId={s.workId}
+                title={s.title}
+                pcts={s.points.map((p) => p.pct)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* 盛り上がり */}
       <section className="card p-5 sm:p-6">
         <h2 className="section-title text-lg mb-1">盛り上がった放送回（直近2週間）</h2>
@@ -309,6 +332,77 @@ function RatioColumn({
   );
 }
 
+/** 残留カーブのミニカード（small multiples 用, 静的SVGスパークライン）。 */
+function RetentionMiniCard({
+  workId,
+  title,
+  pcts,
+}: {
+  workId: string;
+  title: string;
+  pcts: number[];
+}) {
+  const last = pcts.length > 0 ? pcts[pcts.length - 1] : null;
+  const W = 120;
+  const H = 36;
+  const PAD = 3;
+  // 100%基準線を含めてスケール（残留率は100前後を行き来する）
+  const vals = [...pcts, 100];
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+  const px = (i: number) =>
+    pcts.length <= 1 ? W / 2 : PAD + (i / (pcts.length - 1)) * (W - PAD * 2);
+  const py = (v: number) => PAD + (1 - (v - minV) / range) * (H - PAD * 2);
+  const y100 = py(100);
+  const points = pcts.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
+
+  return (
+    <Link
+      href={`/analytics/works/${workId}`}
+      className="block border border-line rounded-lg p-2.5 bg-paper hover:border-line-strong transition"
+    >
+      <p className="text-xs font-bold text-ink-soft truncate mb-1.5" title={title}>
+        {title}
+      </p>
+      <div className="flex items-end justify-between gap-2">
+        <svg
+          width={W}
+          height={H}
+          viewBox={`0 0 ${W} ${H}`}
+          aria-hidden="true"
+          className="overflow-visible shrink-0"
+        >
+          {/* 100%基準線 */}
+          <line x1={PAD} x2={W - PAD} y1={y100} y2={y100} stroke="#d4d8e0" strokeWidth="1" />
+          {pcts.length >= 2 && (
+            <polyline
+              points={points}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              className="text-accent"
+            />
+          )}
+          {last != null && (
+            <circle
+              cx={px(pcts.length - 1).toFixed(1)}
+              cy={py(last).toFixed(1)}
+              r="2"
+              className="fill-current text-accent"
+            />
+          )}
+        </svg>
+        <span className="text-xs font-black text-accent tabular-nums shrink-0">
+          {last != null ? `${Math.round(last)}%` : "—"}
+        </span>
+      </div>
+    </Link>
+  );
+}
+
 /* ================================================================ クール診断 */
 
 async function ScorecardSection() {
@@ -370,7 +464,24 @@ async function ScorecardSection() {
 
       {/* 偏差値ランキング表 */}
       <section className="card p-5 sm:p-6">
-        <h2 className="section-title text-lg mb-1">偏差値カルテ（総合順）</h2>
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 className="section-title text-lg">偏差値カルテ（総合順）</h2>
+          <CsvExportButton
+            filename={`クール診断_偏差値カルテ_${card.year}_${card.season}`}
+            headers={["順位", "作品", "総合", "認知", "熱量", "熱量密度", "定着", "満足", "タイプ"]}
+            rows={card.works.slice(0, 24).map((w, i) => [
+              i + 1,
+              w.title,
+              w.overall,
+              w.awarenessDev,
+              w.passionDev,
+              w.densityDev,
+              w.retentionDev,
+              w.satisfactionDev,
+              QUADRANT_LABELS[w.quadrant],
+            ])}
+          />
+        </div>
         <p className="text-xs text-muted mb-4">
           各指標はクール内の偏差値（平均50）。熱量密度＝コメント数÷認知規模（規模の割に濃く語られているか）。
           定着＝直近話の実況コメント÷初回話。
@@ -570,7 +681,25 @@ async function PeopleSection() {
     <div className="space-y-5">
       {/* 声優スコアカード */}
       <section className="card p-5 sm:p-6">
-        <h2 className="section-title text-lg mb-1">声優スコアカード</h2>
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 className="section-title text-lg">声優スコアカード</h2>
+          {vas.length > 0 && (
+            <CsvExportButton
+              filename="声優スコアカード"
+              headers={["順位", "声優", "出演", "主演率%", "主演作平均", "打率", "モメンタム", "ブレイク"]}
+              rows={vas.map((v, i) => [
+                i + 1,
+                v.name,
+                v.appearances,
+                Math.round(v.leadRatio * 100),
+                v.leadAvgScore,
+                formatBa(v.battingAverage),
+                v.momentum,
+                v.breakout ? "★" : "",
+              ])}
+            />
+          )}
+        </div>
         <p className="text-xs text-muted mb-1">
           主演作の平均スコア順（ノイズ除去のためスコア付き出演3本以上が対象）。注目度の高い声優を上位に表示。
         </p>
@@ -919,7 +1048,24 @@ function ScoreSparkline({ data }: { data: { year: number; avgScore: number }[] }
 function StudioScorecardCard({ scorecards }: { scorecards: StudioScorecard[] }) {
   return (
     <section className="card p-5 sm:p-6">
-      <h2 className="section-title text-lg mb-1">スタジオ・スコアカード</h2>
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <h2 className="section-title text-lg">スタジオ・スコアカード</h2>
+        {scorecards.length > 0 && (
+          <CsvExportButton
+            filename="スタジオスコアカード"
+            headers={["順位", "制作会社", "制作数", "スコア付き作品数", "平均スコア", "打率", "一貫性"]}
+            rows={scorecards.map((sc, i) => [
+              i + 1,
+              sc.studio,
+              sc.worksCount,
+              sc.scoredWorks,
+              sc.avgScore,
+              formatBa(sc.battingAverage),
+              sc.consistency,
+            ])}
+          />
+        )}
+      </div>
       <p className="text-xs text-muted mb-1">
         平均スコア順（ノイズ除去のためスコア付き作品3本以上が対象）。スコアはAniList優先、なければMAL換算。
       </p>

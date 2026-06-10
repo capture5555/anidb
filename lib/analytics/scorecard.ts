@@ -15,6 +15,7 @@
 import { getAdminClient } from "../supabase/admin.ts";
 import { seasonOf, SEASON_LABELS } from "../season.ts";
 import type { Season } from "../types.ts";
+import { memoizeTTL } from "../cache.ts";
 
 const chunk = <T,>(arr: T[], size: number): T[][] => {
   const out: T[][] = [];
@@ -187,7 +188,7 @@ const WORK_COLUMNS =
   "id, title, poster_url, key_visual_url, popularity, anilist_score, anilist_popularity, mal_score, mal_members";
 
 /** 今期作品のクール診断（偏差値カルテ＋4象限）。挙動は従来どおり。 */
-export async function getCoolScorecard(): Promise<CoolScorecard> {
+async function getCoolScorecardUncached(): Promise<CoolScorecard> {
   const db = getAdminClient();
   const { year, season } = seasonOf(new Date());
 
@@ -200,6 +201,12 @@ export async function getCoolScorecard(): Promise<CoolScorecard> {
 
   return buildScorecard(year, season, (works ?? []) as ScorecardWorkRow[]);
 }
+
+/**
+ * 今期作品のクール診断（30分メモ化）。エクスポート名・挙動は従来どおり。
+ * force-dynamic ページの各レンダリングでの重い集計を抑える。
+ */
+export const getCoolScorecard = memoizeTTL(getCoolScorecardUncached, () => "cool", 1800000);
 
 /**
  * 任意のクール（year/season）でクール診断を計算する。
@@ -424,7 +431,7 @@ async function buildScorecard(
  * 作品の season_year/season_name のクールが算出可能で、その作品が母数に入っていれば返す。
  * 実況データ不足等で算出できない場合は null。
  */
-export async function getWorkCohortPosition(workId: string): Promise<WorkCohortPosition | null> {
+async function getWorkCohortPositionUncached(workId: string): Promise<WorkCohortPosition | null> {
   const db = getAdminClient();
   const { data: work } = await db
     .from("works")
@@ -457,3 +464,13 @@ export async function getWorkCohortPosition(workId: string): Promise<WorkCohortP
     commentary,
   };
 }
+
+/**
+ * 単一作品のクール内ポジション（workId 単位で30分メモ化）。
+ * エクスポート名・挙動は従来どおり。
+ */
+export const getWorkCohortPosition = memoizeTTL(
+  getWorkCohortPositionUncached,
+  (workId) => workId,
+  1800000,
+);

@@ -17,6 +17,7 @@ import {
   consistencyFromCv,
   battingAverage,
 } from "./studios.ts";
+import { memoizeTTL } from "../cache.ts";
 
 /* ================================================================
    純関数（単体テスト可）
@@ -168,7 +169,7 @@ function buildSeasonStats(
  * @param opts.minWorks ノイズフロア（スコア付き作品の下限, デフォルト 3）
  * @param opts.limit    上位N件（leadAvgScore 降順, null は最後）。デフォルト 30。
  */
-export async function getVoiceActorScorecards(opts?: {
+async function getVoiceActorScorecardsUncached(opts?: {
   minWorks?: number;
   limit?: number;
 }): Promise<VaScorecard[]> {
@@ -311,6 +312,16 @@ export async function getVoiceActorScorecards(opts?: {
   return cards.slice(0, limit);
 }
 
+/**
+ * 声優スコアカード（opts 単位で30分メモ化）。エクスポート名・挙動は従来どおり。
+ * 全 work_casts × works を走査する重い集計をキャッシュする。
+ */
+export const getVoiceActorScorecards = memoizeTTL(
+  getVoiceActorScorecardsUncached,
+  (opts) => `va:${opts?.minWorks ?? 3}:${opts?.limit ?? 30}`,
+  1800000,
+);
+
 /* ================================================================
    スタッフスコアカード
    ================================================================ */
@@ -334,7 +345,7 @@ const ROLE_BUCKETS: RoleBucket[] = [
  *
  * @param opts.limit バケットあたりの上位N件（avgScore 降順）。デフォルト 15。
  */
-export async function getStaffScorecards(opts?: {
+async function getStaffScorecardsUncached(opts?: {
   limit?: number;
 }): Promise<{ role: StaffRoleKey; label: string; people: StaffScorecard[] }[]> {
   const limit = opts?.limit ?? 15;
@@ -450,3 +461,13 @@ export async function getStaffScorecards(opts?: {
 
   return result;
 }
+
+/**
+ * スタッフスコアカード（opts 単位で30分メモ化）。エクスポート名・挙動は従来どおり。
+ * 全 work_staff × works を走査する重い集計をキャッシュする。
+ */
+export const getStaffScorecards = memoizeTTL(
+  getStaffScorecardsUncached,
+  (opts) => `staff:${opts?.limit ?? 15}`,
+  1800000,
+);
