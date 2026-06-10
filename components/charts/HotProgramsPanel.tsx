@@ -87,9 +87,17 @@ export function HotProgramsPanel({ programs }: { programs: HotProgramInput[] }) 
               {cur.episodeLabel} {cur.channelName && `（${cur.channelName}）`}
             </span>
           </p>
-          <p className="text-xs text-muted tabular-nums">
-            {formatDate(cur.startAt)}放送 ・ 計{cur.totalComments.toLocaleString()}コメント
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-muted tabular-nums">
+              {formatDate(cur.startAt)}放送 ・ 計{cur.totalComments.toLocaleString()}コメント
+            </p>
+            <Link
+              href={`/analytics/works/${cur.workId}`}
+              className="text-xs font-bold text-primary hover:underline underline-offset-2 shrink-0"
+            >
+              全話の分析 →
+            </Link>
+          </div>
         </div>
         <MinuteHeatChart points={cur.points} peaks={cur.peaks} />
       </div>

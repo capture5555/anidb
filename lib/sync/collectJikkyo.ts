@@ -103,14 +103,21 @@ export async function collectJikkyo(): Promise<CollectJikkyoResult> {
   const from = new Date(now - LOOKBACK_HOURS * 3600 * 1000).toISOString();
   const to = new Date(now - MIN_AGE_MINUTES * 60 * 1000).toISOString();
 
-  const { data: programs, error } = await db
-    .from("programs")
-    .select("id, start_at, end_at, channels(jikkyo_id, name)")
-    .gte("end_at", from)
-    .lte("end_at", to)
-    .eq("is_rebroadcast", false)
-    .order("end_at");
-  if (error) throw error;
+  // 1000行ずつページングして窓内の全番組を取得（supabaseの既定上限対策）
+  const programs: any[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await db
+      .from("programs")
+      .select("id, start_at, end_at, channels(jikkyo_id, name)")
+      .gte("end_at", from)
+      .lte("end_at", to)
+      .eq("is_rebroadcast", false)
+      .order("end_at")
+      .range(offset, offset + 999);
+    if (error) throw error;
+    programs.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
 
   // 収集済み（no_channel 等も含む）を除外
   const done = new Set<string>();

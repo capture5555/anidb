@@ -9,7 +9,14 @@ import {
   type Filter,
   type RatedWork,
 } from "@/lib/analytics";
-import { getRetentionSeries, getHotPrograms } from "@/lib/analytics/viewing";
+import {
+  getRetentionSeries,
+  getJikkyoRetentionSeries,
+  getHotPrograms,
+  getPeakMoments,
+  getReactionRatios,
+  type ReactionRatioWork,
+} from "@/lib/analytics/viewing";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
 import { SEASON_LABELS, SEASON_ORDER } from "@/lib/season";
@@ -45,10 +52,11 @@ function parsePeriod(p: string | undefined, curYear: number): { filter: Filter; 
 export default async function AnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; period?: string }>;
+  searchParams: Promise<{ view?: string; period?: string; basis?: string }>;
 }) {
   const sp = await searchParams;
   const view = sp.view === "industry" ? "industry" : "viewing";
+  const basis = sp.basis === "annict" ? "annict" : "jikkyo";
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -82,7 +90,7 @@ export default async function AnalyticsPage({
         </ul>
       </nav>
 
-      {view === "viewing" ? <ViewingSection /> : <IndustrySection period={sp.period} />}
+      {view === "viewing" ? <ViewingSection basis={basis} /> : <IndustrySection period={sp.period} />}
 
       <div className="h-16" />
     </div>
@@ -91,22 +99,56 @@ export default async function AnalyticsPage({
 
 /* ================================================================ 視聴分析 */
 
-async function ViewingSection() {
-  const [retention, hot] = await Promise.all([
-    getRetentionSeries(8).catch(() => ({ snapshotDate: null, series: [] })),
+async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
+  const [retention, hot, peaks, ratios] = await Promise.all([
+    basis === "annict"
+      ? getRetentionSeries(8).catch(() => ({ snapshotDate: null, series: [] }))
+      : getJikkyoRetentionSeries(8).catch(() => ({ snapshotDate: null, series: [] })),
     getHotPrograms(6, 14).catch(() => []),
+    getPeakMoments(10).catch(() => []),
+    getReactionRatios(1000).catch(() => []),
   ]);
 
   return (
     <div className="space-y-5">
       {/* 残留率 */}
       <section className="card p-5 sm:p-6">
-        <h2 className="section-title text-lg mb-1">話数別の視聴継続率</h2>
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+          <h2 className="section-title text-lg">話数別の視聴継続率</h2>
+          <div className="flex gap-1.5">
+            <Link
+              href="/analytics"
+              className={`text-xs font-bold px-3 py-1 rounded-full transition ${
+                basis === "jikkyo" ? "bg-ink text-white" : "bg-surface border border-line text-ink-soft hover:border-line-strong"
+              }`}
+            >
+              実況コメント基準
+            </Link>
+            <Link
+              href="/analytics?basis=annict"
+              className={`text-xs font-bold px-3 py-1 rounded-full transition ${
+                basis === "annict" ? "bg-ink text-white" : "bg-surface border border-line text-ink-soft hover:border-line-strong"
+              }`}
+            >
+              Annict記録基準
+            </Link>
+          </div>
+        </div>
         <p className="text-xs text-muted mb-5">
-          今期人気作の「1話を記録した人を100%としたときの各話の記録数」。
-          母数はAnnictの記録ユーザー（テレビ視聴率ではありません）。
-          {retention.snapshotDate && ` 集計: ${retention.snapshotDate}時点`}
-          ・放送4日未満の話は集計中のため除外
+          {basis === "annict" ? (
+            <>
+              今期人気作の「1話を記録した人を100%としたときの各話の記録数」。母数はAnnictの記録ユーザー
+              （テレビ視聴率ではありません）。
+              {retention.snapshotDate && ` 集計: ${retention.snapshotDate}時点`}
+              ・放送4日未満の話は集計中のため除外
+            </>
+          ) : (
+            <>
+              今期人気作の「初回放送の実況コメント数を100%としたときの各話のコメント数」。
+              母数はニコニコ実況のコメント（テレビ視聴率ではありません）。
+              作品名をクリックすると話数ごとの詳細分析が見られます。
+            </>
+          )}
         </p>
         <RetentionChart series={retention.series} />
       </section>
@@ -121,10 +163,121 @@ async function ViewingSection() {
         <HotProgramsPanel programs={hot} />
       </section>
 
+      {/* 瞬間最大風速 */}
+      {peaks.length > 0 && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">瞬間最大風速ランキング（今期）</h2>
+          <p className="text-xs text-muted mb-4">
+            「1分間に流れたコメント数」の最大値が大きかった瞬間。その時に何が流れたかも見られます。
+          </p>
+          <ol className="divide-y divide-line">
+            {peaks.map((p, i) => (
+              <li key={p.programId} className="flex items-center gap-3 py-2.5">
+                <span className={`w-6 text-center font-black tabular-nums shrink-0 ${i < 3 ? "text-accent" : "text-muted"}`}>
+                  {i + 1}
+                </span>
+                <Link href={`/analytics/works/${p.workId}`} className="shrink-0">
+                  <WorkCover id={p.workId} title={p.workTitle} url={p.posterUrl} className="w-9 h-12 rounded-md" />
+                </Link>
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/analytics/works/${p.workId}`}
+                    className="block text-sm font-bold text-ink hover:text-primary transition truncate"
+                  >
+                    {p.workTitle}
+                    <span className="font-normal text-ink-soft ml-1.5">{p.episodeLabel}</span>
+                  </Link>
+                  <p className="text-xs text-muted truncate">
+                    開始{p.minute}分ごろ
+                    {p.topComments.length > 0 &&
+                      ` ─ ${p.topComments.map((c) => `「${c.text}」`).join(" ")}`}
+                  </p>
+                </div>
+                <span className="shrink-0 text-right">
+                  <span className="block font-black text-accent tabular-nums">{p.maxPerMinute.toLocaleString()}</span>
+                  <span className="block text-[0.62rem] text-muted">コメ/分</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {/* リアクション構成比ランキング */}
+      {ratios.length > 2 && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">リアクション別ランキング（今期）</h2>
+          <p className="text-xs text-muted mb-4">
+            実況コメントの内容を分類し、コメント全体に占める割合でランキング。母数は各作品の実況コメント総数（1,000コメント以上の作品が対象）。
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
+            <RatioColumn works={ratios} category="laugh" title="一番笑えるアニメ" color="#f5a623" label="笑い率" />
+            <RatioColumn works={ratios} category="cry" title="一番泣けるアニメ" color="#2f6fdb" label="感動率" />
+            <RatioColumn works={ratios} category="sakuga" title="作画が語られるアニメ" color="#2ebd85" label="作画言及率" />
+          </div>
+        </section>
+      )}
+
       <p className="text-xs text-muted leading-relaxed">
         ※ データソース: Annict（記録数）・ニコニコ実況 過去ログAPI（コメント）。
         どちらも各サービスの利用者を母数とした参考値であり、テレビの視聴率・視聴者数を示すものではありません。
       </p>
+    </div>
+  );
+}
+
+function RatioColumn({
+  works,
+  category,
+  title,
+  color,
+  label,
+}: {
+  works: ReactionRatioWork[];
+  category: "laugh" | "cry" | "sakuga";
+  title: string;
+  color: string;
+  label: string;
+}) {
+  const ranked = works
+    .filter((w) => (w.ratios[category] ?? 0) > 0)
+    .sort((a, b) => (b.ratios[category] ?? 0) - (a.ratios[category] ?? 0))
+    .slice(0, 8);
+  if (ranked.length === 0) return null;
+  const max = ranked[0].ratios[category] ?? 1;
+
+  return (
+    <div>
+      <h3 className="font-black text-[0.95rem] mb-2.5" style={{ color }}>
+        {title}
+      </h3>
+      <ol className="space-y-2">
+        {ranked.map((w, i) => (
+          <li key={w.workId} className="flex items-center gap-2">
+            <span className={`w-4 text-right text-xs font-bold tabular-nums shrink-0 ${i < 3 ? "text-ink" : "text-muted"}`}>
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <Link
+                href={`/analytics/works/${w.workId}`}
+                className="block text-xs font-bold text-ink hover:text-primary transition truncate"
+              >
+                {w.title}
+              </Link>
+              <div className="mt-0.5 bg-paper rounded-full h-2">
+                <div
+                  className="h-2 rounded-full"
+                  style={{ width: `${Math.max(4, ((w.ratios[category] ?? 0) / max) * 100)}%`, backgroundColor: color }}
+                />
+              </div>
+            </div>
+            <span className="shrink-0 text-xs font-bold tabular-nums" style={{ color }}>
+              {(w.ratios[category] ?? 0).toFixed(1)}%
+            </span>
+          </li>
+        ))}
+      </ol>
+      <p className="text-[0.62rem] text-muted mt-1.5">{label} = 該当コメント数 ÷ 総コメント数</p>
     </div>
   );
 }

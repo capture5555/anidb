@@ -121,6 +121,74 @@ export async function getRetentionSeries(limit = 8): Promise<RetentionResult> {
   return { snapshotDate, series: series.slice(0, limit) };
 }
 
+/**
+ * 実況コメント数ベースの「話数別カーブ」。
+ * 同じ話が複数チャンネルで収集されている場合は最大コメント数のチャンネルを代表にする。
+ */
+export async function getJikkyoRetentionSeries(limit = 8): Promise<RetentionResult> {
+  const db = getAdminClient();
+
+  const { data: logs } = await db
+    .from("analytics_collection_log")
+    .select("program_id, comment_count")
+    .eq("status", "collected")
+    .gt("comment_count", 0)
+    .limit(3000);
+  if (!logs || logs.length === 0) return { snapshotDate: null, series: [] };
+  const countByProgram = new Map(logs.map((l) => [l.program_id, l.comment_count]));
+
+  // 番組→作品/話数
+  const progs: any[] = [];
+  for (const ids of chunk([...countByProgram.keys()], 150)) {
+    const { data } = await db
+      .from("programs")
+      .select(
+        "id, work_id, episode_id, start_at, episodes(sort, number, number_text), works!inner(title, poster_url, key_visual_url, popularity)",
+      )
+      .in("id", ids)
+      .eq("is_rebroadcast", false)
+      .not("episode_id", "is", null);
+    progs.push(...(data ?? []));
+  }
+
+  // 作品→話数→代表コメント数（最大チャンネル）
+  const byWork = new Map<string, { meta: any; eps: Map<string, { sort: number; label: string | null; count: number }> }>();
+  for (const p of progs) {
+    const c = countByProgram.get(p.id) ?? 0;
+    if (!byWork.has(p.work_id)) byWork.set(p.work_id, { meta: p.works, eps: new Map() });
+    const eps = byWork.get(p.work_id)!.eps;
+    const cur = eps.get(p.episode_id);
+    const label =
+      p.episodes?.number_text ?? (p.episodes?.number != null ? `第${p.episodes.number}話` : null);
+    if (!cur || c > cur.count) {
+      eps.set(p.episode_id, { sort: p.episodes?.sort ?? 0, label, count: c });
+    }
+  }
+
+  const series: RetentionSeries[] = [];
+  for (const [workId, { meta, eps }] of byWork) {
+    const sorted = [...eps.values()].sort((a, b) => a.sort - b.sort);
+    if (sorted.length < 2) continue;
+    const base = sorted[0].count;
+    if (base < 100) continue; // 母数が小さすぎる作品はノイズ
+    series.push({
+      workId,
+      title: meta.title,
+      posterUrl: meta.poster_url ?? meta.key_visual_url ?? null,
+      popularity: meta.popularity ?? 0,
+      points: sorted.map((e, i) => ({
+        episodeNumber: i + 1,
+        numberText: e.label,
+        records: e.count,
+        pct: Math.round((e.count / base) * 1000) / 10,
+      })),
+    });
+  }
+
+  series.sort((a, b) => b.popularity - a.popularity);
+  return { snapshotDate: null, series: series.slice(0, limit) };
+}
+
 // ---------------------------------------------------------------- 盛り上がり
 
 export interface MinuteHeatPoint {
@@ -244,6 +312,318 @@ async function loadProgramHeat(
     points,
     peaks: (peaks ?? []).map((p) => ({ minute: p.minute_offset, comments: p.comments ?? [] })),
   };
+}
+
+// ---------------------------------------------------------------- リアクション構成比
+
+export interface ReactionRatioWork {
+  workId: string;
+  title: string;
+  posterUrl: string | null;
+  totalComments: number;
+  /** カテゴリ → 構成比%（コメント総数に対する割合） */
+  ratios: Partial<Record<ReactionCategory, number>>;
+}
+
+/** 作品ごとのリアクション構成比（笑い率・感動率・作画注目率ランキング用） */
+export async function getReactionRatios(minComments = 1000): Promise<ReactionRatioWork[]> {
+  const db = getAdminClient();
+
+  // 収集済み番組の総コメント数
+  const { data: logs } = await db
+    .from("analytics_collection_log")
+    .select("program_id, comment_count")
+    .eq("status", "collected")
+    .gt("comment_count", 0)
+    .limit(3000);
+  if (!logs || logs.length === 0) return [];
+  const countByProgram = new Map(logs.map((l) => [l.program_id, l.comment_count]));
+
+  // 番組→作品
+  const workByProgram = new Map<string, string>();
+  const workMeta = new Map<string, { title: string; posterUrl: string | null }>();
+  for (const ids of chunk([...countByProgram.keys()], 150)) {
+    const { data } = await db
+      .from("programs")
+      .select("id, work_id, works!inner(title, poster_url, key_visual_url)")
+      .in("id", ids);
+    for (const p of data ?? []) {
+      workByProgram.set(p.id, p.work_id);
+      if (!workMeta.has(p.work_id)) {
+        const w: any = p.works;
+        workMeta.set(p.work_id, { title: w.title, posterUrl: w.poster_url ?? w.key_visual_url ?? null });
+      }
+    }
+  }
+
+  // リアクション行を全部読んで作品単位に集計
+  const reactByWork = new Map<string, Partial<Record<ReactionCategory, number>>>();
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await db
+      .from("analytics_minute_reactions")
+      .select("program_id, category, count")
+      .range(offset, offset + 999);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      const workId = workByProgram.get(r.program_id);
+      if (!workId) continue;
+      if (!reactByWork.has(workId)) reactByWork.set(workId, {});
+      const m = reactByWork.get(workId)!;
+      m[r.category as ReactionCategory] = (m[r.category as ReactionCategory] ?? 0) + r.count;
+    }
+    if (!data || data.length < 1000) break;
+  }
+
+  // 作品ごとの総コメント数
+  const totalByWork = new Map<string, number>();
+  for (const [programId, count] of countByProgram) {
+    const workId = workByProgram.get(programId);
+    if (!workId) continue;
+    totalByWork.set(workId, (totalByWork.get(workId) ?? 0) + count);
+  }
+
+  const out: ReactionRatioWork[] = [];
+  for (const [workId, total] of totalByWork) {
+    if (total < minComments) continue;
+    const meta = workMeta.get(workId);
+    if (!meta) continue;
+    const sums = reactByWork.get(workId) ?? {};
+    const ratios: Partial<Record<ReactionCategory, number>> = {};
+    for (const [cat, sum] of Object.entries(sums)) {
+      ratios[cat as ReactionCategory] = Math.round(((sum as number) / total) * 1000) / 10;
+    }
+    out.push({ workId, title: meta.title, posterUrl: meta.posterUrl, totalComments: total, ratios });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- 瞬間最大風速
+
+export interface PeakMoment {
+  programId: string;
+  workId: string;
+  workTitle: string;
+  posterUrl: string | null;
+  episodeLabel: string | null;
+  channelName: string | null;
+  startAt: string;
+  minute: number;
+  maxPerMinute: number;
+  topComments: { text: string; count: number }[];
+}
+
+/** 瞬間最大風速ランキング（1分あたり最大コメント数）。 */
+export async function getPeakMoments(limit = 10): Promise<PeakMoment[]> {
+  const db = getAdminClient();
+
+  // 番組ごとの最大分を集計（全行ページング）
+  const maxByProgram = new Map<string, { minute: number; count: number }>();
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await db
+      .from("analytics_minute_heat")
+      .select("program_id, minute_offset, comment_count")
+      .range(offset, offset + 999);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      const cur = maxByProgram.get(r.program_id);
+      if (!cur || r.comment_count > cur.count) {
+        maxByProgram.set(r.program_id, { minute: r.minute_offset, count: r.comment_count });
+      }
+    }
+    if (!data || data.length < 1000) break;
+  }
+  if (maxByProgram.size === 0) return [];
+
+  const top = [...maxByProgram.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, limit * 2); // 番組情報が引けない分の余裕
+
+  const out: PeakMoment[] = [];
+  for (const ids of chunk(top.map(([id]) => id), 100)) {
+    const { data } = await db
+      .from("programs")
+      .select(
+        "id, work_id, start_at, count, channels(name), works!inner(title, poster_url, key_visual_url), episodes(number_text, number)",
+      )
+      .in("id", ids);
+    for (const p of data ?? []) {
+      const m = maxByProgram.get(p.id)!;
+      const ep: any = p.episodes;
+      const w: any = p.works;
+      out.push({
+        programId: p.id,
+        workId: p.work_id,
+        workTitle: w.title,
+        posterUrl: w.poster_url ?? w.key_visual_url ?? null,
+        episodeLabel:
+          ep?.number_text ?? (ep?.number != null ? `第${ep.number}話` : p.count != null ? `第${p.count}話` : null),
+        channelName: (p.channels as any)?.name ?? null,
+        startAt: p.start_at,
+        minute: m.minute,
+        maxPerMinute: m.count,
+        topComments: [],
+      });
+    }
+  }
+  out.sort((a, b) => b.maxPerMinute - a.maxPerMinute);
+  const ranked = out.slice(0, limit);
+
+  // ピーク分の代表コメント
+  for (const r of ranked) {
+    const { data } = await db
+      .from("analytics_peak_comments")
+      .select("comments")
+      .eq("program_id", r.programId)
+      .eq("minute_offset", r.minute)
+      .maybeSingle();
+    r.topComments = (data?.comments ?? []).slice(0, 3);
+  }
+  return ranked;
+}
+
+// ---------------------------------------------------------------- 作品別分析
+
+export interface EpisodeHeat {
+  programId: string;
+  episodeId: string | null;
+  episodeLabel: string;
+  channelName: string | null;
+  startAt: string;
+  totalComments: number;
+  points: MinuteHeatPoint[];
+  peaks: PeakInfo[];
+}
+
+export interface WorkAnalysis {
+  workId: string;
+  title: string;
+  posterUrl: string | null;
+  /** 話数別（実況コメント数ベース、各話の代表チャンネル） */
+  episodes: EpisodeHeat[];
+  /** Annict記録数の話数別カーブ（最新スナップショット） */
+  annictPoints: RetentionPoint[];
+  /** 話数別の満足度%（Annict satisfaction_rate、無い話はnull） */
+  satisfactionPoints: { episodeNumber: number; numberText: string | null; rate: number }[];
+}
+
+/** 作品の全収集済み放送回の分析データ（全話の盛り上がりグラフ＋話数トレンド用） */
+export async function getWorkAnalysis(workId: string): Promise<WorkAnalysis | null> {
+  const db = getAdminClient();
+
+  const { data: work } = await db
+    .from("works")
+    .select("title, poster_url, key_visual_url")
+    .eq("id", workId)
+    .maybeSingle();
+  if (!work) return null;
+
+  const { data: programs } = await db
+    .from("programs")
+    .select("id, episode_id, start_at, count, channels(name), episodes(sort, number, number_text)")
+    .eq("work_id", workId)
+    .eq("is_rebroadcast", false)
+    .order("start_at")
+    .limit(200);
+
+  const result: WorkAnalysis = {
+    workId,
+    title: work.title,
+    posterUrl: work.poster_url ?? work.key_visual_url ?? null,
+    episodes: [],
+    annictPoints: [],
+    satisfactionPoints: [],
+  };
+
+  if (programs && programs.length > 0) {
+    const { data: logs } = await db
+      .from("analytics_collection_log")
+      .select("program_id, comment_count")
+      .eq("status", "collected")
+      .gt("comment_count", 0)
+      .in(
+        "program_id",
+        programs.map((p) => p.id),
+      );
+    const countByProgram = new Map((logs ?? []).map((l) => [l.program_id, l.comment_count]));
+
+    // 話数ごとに代表番組（最大コメント数のチャンネル）を選ぶ
+    const repByEpisode = new Map<string, any>();
+    for (const p of programs) {
+      if (!countByProgram.has(p.id)) continue;
+      const key = p.episode_id ?? p.id;
+      const cur = repByEpisode.get(key);
+      if (!cur || (countByProgram.get(p.id) ?? 0) > (countByProgram.get(cur.id) ?? 0)) {
+        repByEpisode.set(key, p);
+      }
+    }
+
+    const reps = [...repByEpisode.values()].sort(
+      (a, b) =>
+        (a.episodes?.sort ?? 9999) - (b.episodes?.sort ?? 9999) ||
+        new Date(a.start_at).getTime() - new Date(b.start_at).getTime(),
+    );
+
+    // 各話のヒートを並列ロード
+    const heats = await Promise.all(reps.map((p) => loadProgramHeat(db, p.id)));
+    reps.forEach((p, i) => {
+      const heat = heats[i];
+      if (!heat) return;
+      const ep: any = p.episodes;
+      result.episodes.push({
+        programId: p.id,
+        episodeId: p.episode_id,
+        episodeLabel:
+          ep?.number_text ??
+          (ep?.number != null ? `第${ep.number}話` : p.count != null ? `第${p.count}話` : "放送回"),
+        channelName: (p.channels as any)?.name ?? null,
+        startAt: p.start_at,
+        totalComments: countByProgram.get(p.id) ?? 0,
+        points: heat.points,
+        peaks: heat.peaks,
+      });
+    });
+  }
+
+  // Annict記録数（最新スナップショット）
+  const { data: latest } = await db
+    .from("analytics_episode_stats")
+    .select("snapshot_date")
+    .eq("work_id", workId)
+    .order("snapshot_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latest) {
+    const { data: stats } = await db
+      .from("analytics_episode_stats")
+      .select("records_count, satisfaction_rate, episodes!inner(sort, number, number_text)")
+      .eq("work_id", workId)
+      .eq("snapshot_date", latest.snapshot_date);
+    const sorted = (stats ?? [])
+      .map((s: any) => s)
+      .sort((a: any, b: any) => (a.episodes.sort ?? 0) - (b.episodes.sort ?? 0))
+      .filter((s: any) => s.records_count > 0);
+    if (sorted.length >= 2) {
+      const base = sorted[0].records_count;
+      const label = (s: any) =>
+        s.episodes.number_text ?? (s.episodes.number != null ? `第${s.episodes.number}話` : null);
+      result.annictPoints = sorted.map((s: any, i: number) => ({
+        episodeNumber: i + 1,
+        numberText: label(s),
+        records: s.records_count,
+        pct: Math.round((s.records_count / base) * 1000) / 10,
+      }));
+      result.satisfactionPoints = sorted
+        .map((s: any, i: number) => ({
+          episodeNumber: i + 1,
+          numberText: label(s),
+          rate: s.satisfaction_rate != null ? Math.round(Number(s.satisfaction_rate) * 10) / 10 : NaN,
+        }))
+        .filter((p: any) => !Number.isNaN(p.rate));
+    }
+  }
+
+  if (result.episodes.length === 0 && result.annictPoints.length === 0) return null;
+  return result;
 }
 
 /** 特定作品の分析済み放送回（盛り上がりグラフ用）。最新の1件を返す */

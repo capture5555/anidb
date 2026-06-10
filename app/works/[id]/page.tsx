@@ -138,7 +138,15 @@ export default async function WorkDetailPage({
           {/* 盛り上がりグラフ（実況コメント） */}
           {heat && (
             <section className="card p-5 sm:p-6">
-              <h2 className="section-title text-lg mb-1">実況の盛り上がり</h2>
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+                <h2 className="section-title text-lg">実況の盛り上がり</h2>
+                <Link
+                  href={`/analytics/works/${work.id}`}
+                  className="text-xs font-bold text-primary hover:underline underline-offset-2"
+                >
+                  全話の分析を見る →
+                </Link>
+              </div>
               <p className="text-xs text-muted mb-4">
                 {heat.episodeLabel ?? "直近放送回"}
                 {heat.channelName && `（${heat.channelName}）`} ・ ニコニコ実況の分単位コメント数

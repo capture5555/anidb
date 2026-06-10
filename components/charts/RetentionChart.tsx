@@ -20,6 +20,8 @@ export interface RetentionSeriesInput {
   posterUrl: string | null;
   popularity: number;
   points: RetentionPointInput[];
+  /** percent: 生の%値（満足度など）。ツールチップの件数表示と破線スタイルが変わる */
+  kind?: "count" | "percent";
 }
 
 const COLORS = [
@@ -39,7 +41,13 @@ const W = 760;
 const H = 380;
 const PAD = { top: 18, right: 24, bottom: 34, left: 46 };
 
-export function RetentionChart({ series }: { series: RetentionSeriesInput[] }) {
+export function RetentionChart({
+  series,
+  linkLegend = true,
+}: {
+  series: RetentionSeriesInput[];
+  linkLegend?: boolean;
+}) {
   const [active, setActive] = useState<string | null>(null);
   const [tip, setTip] = useState<{ x: number; y: number; lines: string[] } | null>(null);
 
@@ -101,7 +109,7 @@ export function RetentionChart({ series }: { series: RetentionSeriesInput[] }) {
           {/* X軸ラベル（話数） */}
           {Array.from({ length: maxEp }, (_, i) => i + 1).map((ep) => (
             <text key={ep} x={x(ep)} y={H - PAD.bottom + 18} textAnchor="middle" fontSize="11" fill="#8a909c">
-              {ep}話
+              {ep}話目
             </text>
           ))}
 
@@ -123,7 +131,13 @@ export function RetentionChart({ series }: { series: RetentionSeriesInput[] }) {
                 }}
                 style={{ cursor: "pointer", transition: "opacity .15s" }}
               >
-                <path d={d} fill="none" stroke={color} strokeWidth={active === s.workId ? 3 : 2} />
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={active === s.workId ? 3 : 2}
+                  strokeDasharray={s.kind === "percent" ? "6 4" : undefined}
+                />
                 {s.points.map((p) => (
                   <circle
                     key={p.episodeNumber}
@@ -138,11 +152,14 @@ export function RetentionChart({ series }: { series: RetentionSeriesInput[] }) {
                       setTip({
                         x: ((x(p.episodeNumber) / W) * rect.width),
                         y: ((y(p.pct) / H) * rect.height),
-                        lines: [
-                          s.title,
-                          `${p.numberText ?? `${p.episodeNumber}話`}: ${p.pct}%`,
-                          `記録 ${p.records.toLocaleString()}件`,
-                        ],
+                        lines:
+                          s.kind === "percent"
+                            ? [s.title, `${p.numberText ?? `${p.episodeNumber}話`}: ${p.pct}%`]
+                            : [
+                                s.title,
+                                `${p.numberText ?? `${p.episodeNumber}話`}: ${p.pct}%`,
+                                `${p.records.toLocaleString()}件`,
+                              ],
                       });
                     }}
                   />
@@ -172,17 +189,32 @@ export function RetentionChart({ series }: { series: RetentionSeriesInput[] }) {
         {series.map((s, si) => {
           const color = COLORS[si % COLORS.length];
           const dim = active != null && active !== s.workId;
+          const inner = (
+            <>
+              <span className="inline-block w-3.5 h-[3px] rounded-full" style={{ backgroundColor: color }} />
+              <span className="max-w-[180px] truncate">{s.title}</span>
+            </>
+          );
           return (
             <li key={s.workId} style={{ opacity: dim ? 0.35 : 1 }}>
-              <Link
-                href={`/works/${s.workId}`}
-                className="inline-flex items-center gap-1.5 text-xs text-ink-soft hover:text-ink"
-                onMouseEnter={() => setActive(s.workId)}
-                onMouseLeave={() => setActive(null)}
-              >
-                <span className="inline-block w-3.5 h-[3px] rounded-full" style={{ backgroundColor: color }} />
-                <span className="max-w-[180px] truncate">{s.title}</span>
-              </Link>
+              {linkLegend ? (
+                <Link
+                  href={`/analytics/works/${s.workId}`}
+                  className="inline-flex items-center gap-1.5 text-xs text-ink-soft hover:text-ink"
+                  onMouseEnter={() => setActive(s.workId)}
+                  onMouseLeave={() => setActive(null)}
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1.5 text-xs text-ink-soft"
+                  onMouseEnter={() => setActive(s.workId)}
+                  onMouseLeave={() => setActive(null)}
+                >
+                  {inner}
+                </span>
+              )}
             </li>
           );
         })}
