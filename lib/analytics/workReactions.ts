@@ -13,6 +13,7 @@
  */
 import type { WorkAnalysis } from "./viewing.ts";
 import type { ReactionCategory } from "./commentAnalysis.ts";
+import { detectSpikes } from "./reactionFingerprint.ts";
 
 /** スタックの並び順（MinuteHeatChart の REACTION_META と一致させる） */
 export const REACTION_ORDER: ReactionCategory[] = [
@@ -124,6 +125,10 @@ export interface WorkMoment {
   /** その分のコメント数 */
   total: number;
   comments: { text: string; count: number }[];
+  /** 話内での z-score（母集団標準偏差）。算出不能なら0 */
+  z: number;
+  /** z >= 2 の「神シーン」か */
+  isSpike: boolean;
 }
 
 /**
@@ -134,14 +139,32 @@ export function buildWorkMoments(analysis: WorkAnalysis, limit = 5): WorkMoment[
   const moments: WorkMoment[] = [];
   for (const ep of analysis.episodes) {
     const totalByMinute = new Map(ep.points.map((p) => [p.minute, p.total]));
+    // 話内の分単位コメント数で z-score を算出（detectSpikes と同じ母集団std基準）。
+    // detectSpikes は z>=k の点のみ返すので、minute→z の対応表を作る。
+    const totals = ep.points.map((p) => p.total);
+    const n = totals.length;
+    const mean = n > 0 ? totals.reduce((a, b) => a + b, 0) / n : 0;
+    const variance =
+      n > 0 ? totals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / n : 0;
+    const std = Math.sqrt(variance);
+    const zByMinute = new Map<number, number>();
+    if (n >= 3 && std > 0) {
+      // detectSpikes(totals, k) は z>=k の index を返す。ここでは全分の z が欲しいので k=-Infinity。
+      for (const sp of detectSpikes(totals, Number.NEGATIVE_INFINITY)) {
+        zByMinute.set(ep.points[sp.index].minute, sp.z);
+      }
+    }
     for (const peak of ep.peaks) {
       const total = totalByMinute.get(peak.minute) ?? 0;
       if (total <= 0) continue;
+      const z = zByMinute.get(peak.minute) ?? 0;
       moments.push({
         episodeLabel: ep.episodeLabel,
         minute: peak.minute,
         total,
         comments: peak.comments ?? [],
+        z,
+        isSpike: z >= 2,
       });
     }
   }

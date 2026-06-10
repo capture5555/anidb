@@ -10,6 +10,7 @@ import { SubscribeButton } from "@/components/SubscribeButton";
 import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
 import { CohortPositionPanel } from "@/components/charts/CohortPositionPanel";
 import { getWorkAnalysis } from "@/lib/analytics/viewing";
+import { getCohortReactionAverage } from "@/lib/analytics/reactionFingerprint";
 import { getWorkCohortPosition } from "@/lib/analytics/scorecard";
 import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
@@ -53,6 +54,10 @@ export default async function WorkDetailPage({
 
   // 視聴分析データ（実況の盛り上がり・継続率・全話）。seedモード等では黙ってスキップ
   const analysis = await getWorkAnalysis(id).catch(() => null);
+  // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
+  const cohortReaction = await getCohortReactionAverage()
+    .then((r) => r.shares)
+    .catch(() => undefined);
   // クール内ポジション（偏差値カルテ）。母数に入らなければ null
   const cohort = await getWorkCohortPosition(id).catch(() => null);
 
@@ -151,7 +156,7 @@ export default async function WorkDetailPage({
                 <span className="text-[0.7rem] text-muted">ニコニコ実況・Annict 由来の参考値</span>
               </div>
               {cohort && <CohortPositionPanel position={cohort} />}
-              <WorkAnalysisSections analysis={analysis} />
+              <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
             </div>
           )}
 

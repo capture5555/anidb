@@ -1,4 +1,5 @@
 import type { WorkAnalysis } from "@/lib/analytics/viewing";
+import type { ReactionCategory } from "@/lib/analytics/commentAnalysis";
 import { buildEpisodeCommentary, type EpisodeNote } from "@/lib/analytics/episodeCommentary";
 import { buildWorkReactions, buildWorkMoments } from "@/lib/analytics/workReactions";
 import { RetentionChart, type RetentionSeriesInput } from "./RetentionChart";
@@ -8,12 +9,19 @@ import {
   EpisodeReactionTrend,
   WorkMomentsList,
 } from "./WorkReactionCharts";
+import { ReactionRadar } from "./ReactionRadar";
 
 /**
  * 作品の視聴分析セクション（話数別コメント数・継続率＋満足度・全話の盛り上がり）。
  * 作品ページ(/works/[id])と作品別分析ページ(/analytics/works/[id])で共用する。
  */
-export function WorkAnalysisSections({ analysis }: { analysis: WorkAnalysis }) {
+export function WorkAnalysisSections({
+  analysis,
+  cohortReaction,
+}: {
+  analysis: WorkAnalysis;
+  cohortReaction?: Record<ReactionCategory, number>;
+}) {
   const retentionSeries = buildRetentionSeries(analysis);
   const commentary = buildEpisodeCommentary(analysis);
   const reactions = buildWorkReactions(analysis);
@@ -41,6 +49,15 @@ export function WorkAnalysisSections({ analysis }: { analysis: WorkAnalysis }) {
             実況コメントの内容を分類し、この作品がどんな反応で盛り上がるかを構成比で示します。
           </p>
           <ReactionCompositionBar breakdown={reactions} />
+          {cohortReaction && (
+            <div className="mt-6 border-t border-line pt-4">
+              <p className="text-xs font-bold text-ink-soft mb-3">クール平均との比較</p>
+              <ReactionRadar
+                workShares={reactions.overall.map((r) => ({ category: r.category, share: r.share }))}
+                cohortShares={cohortReaction}
+              />
+            </div>
+          )}
           {reactions.perEpisode.length >= 2 && (
             <div className="mt-6 border-t border-line pt-4">
               <p className="text-xs font-bold text-ink-soft mb-3">話数ごとの内訳</p>

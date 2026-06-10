@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getWorkAnalysis } from "@/lib/analytics/viewing";
+import { getCohortReactionAverage } from "@/lib/analytics/reactionFingerprint";
 import { getWorkCohortPosition } from "@/lib/analytics/scorecard";
 import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
 import { CohortPositionPanel } from "@/components/charts/CohortPositionPanel";
@@ -28,6 +29,10 @@ export default async function WorkAnalyticsPage({
   if (!analysis) notFound();
 
   const cohort = await getWorkCohortPosition(id).catch(() => null);
+  // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
+  const cohortReaction = await getCohortReactionAverage()
+    .then((r) => r.shares)
+    .catch(() => undefined);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -64,7 +69,7 @@ export default async function WorkAnalyticsPage({
 
       <div className="space-y-5 py-5">
         {cohort && <CohortPositionPanel position={cohort} />}
-        <WorkAnalysisSections analysis={analysis} />
+        <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
 
         <p className="text-xs text-muted leading-relaxed">
           ※ データソース: ニコニコ実況 過去ログAPI・Annict。各サービスの利用者を母数とした参考値です。
