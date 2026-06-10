@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 import Link from "next/link";
 import {
-  getStudioStats,
   getVaRanking,
   getSeasonVolume,
   getPopular,
@@ -9,6 +8,7 @@ import {
   type Filter,
   type RatedWork,
 } from "@/lib/analytics";
+import { getStudioScorecards, type StudioScorecard } from "@/lib/analytics/studios";
 import {
   getRetentionSeries,
   getJikkyoRetentionSeries,
@@ -549,15 +549,14 @@ async function IndustrySection({ period }: { period?: string }) {
   const { filter, label, key } = parsePeriod(period, curYear);
 
   const volumeAll = await getSeasonVolume();
-  const [studios, vas, popular, topAni, topMal] = await Promise.all([
-    getStudioStats(filter, 20),
+  const [scorecards, vas, popular, topAni, topMal] = await Promise.all([
+    getStudioScorecards({ limit: 20 }),
     getVaRanking(filter, 24),
     getPopular(filter, 12),
     getTopRated(filter, "anilist", 12),
     getTopRated(filter, "mal", 12),
   ]);
 
-  const maxStudio = Math.max(1, ...studios.map((s) => s.work_count));
   const maxVa = Math.max(1, ...vas.map((v) => v.work_count));
   const maxVol = Math.max(1, ...volumeAll.map((v) => v.work_count));
 
@@ -598,18 +597,8 @@ async function IndustrySection({ period }: { period?: string }) {
         <span className="text-xs text-muted ml-2">対象: {label}</span>
       </div>
 
-      {/* 制作会社ランキング */}
-      <Card title="制作会社ランキング" note="制作本数の多い順（カッコ内は平均人気度）">
-        <BarList
-          rows={studios.map((s) => ({
-            label: s.studio,
-            value: s.work_count,
-            max: maxStudio,
-            suffix: `${s.work_count}本 (${formatPopularity(s.avg_popularity)})`,
-          }))}
-          color="var(--color-primary)"
-        />
-      </Card>
+      {/* スタジオ・スコアカード */}
+      <StudioScorecardCard scorecards={scorecards} />
 
       {/* 高評価ランキング */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -671,6 +660,147 @@ async function IndustrySection({ period }: { period?: string }) {
         </div>
       </Card>
     </div>
+  );
+}
+
+/* ================================================================ スタジオ・スコアカード */
+
+/** 打率の小数表記 .XXX */
+function formatBa(ba: number): string {
+  return `.${String(Math.round(ba * 1000)).padStart(3, "0")}`;
+}
+
+/** 一貫性スコアの色 */
+function consistencyColor(v: number | null): string {
+  if (v == null) return "text-muted";
+  if (v >= 70) return "text-accent";
+  if (v >= 50) return "text-ink";
+  return "text-muted";
+}
+
+/** インラインSVGスパークライン（yearTrend 用, ~80×24px） */
+function ScoreSparkline({ data }: { data: { year: number; avgScore: number }[] }) {
+  if (data.length < 2) {
+    return (
+      <span className="text-[0.65rem] text-muted tabular-nums">
+        {data.length === 1 ? data[0].avgScore.toFixed(0) : "—"}
+      </span>
+    );
+  }
+  const W = 80;
+  const H = 24;
+  const PAD = 3;
+  const scores = data.map((d) => d.avgScore);
+  const minS = Math.min(...scores);
+  const maxS = Math.max(...scores);
+  const range = maxS - minS || 1; // avoid divide-by-zero when all equal
+  const px = (i: number) => PAD + (i / (data.length - 1)) * (W - PAD * 2);
+  const py = (s: number) => PAD + (1 - (s - minS) / range) * (H - PAD * 2);
+  const points = data.map((d, i) => `${px(i).toFixed(1)},${py(d.avgScore).toFixed(1)}`).join(" ");
+
+  return (
+    <svg
+      width={W}
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      aria-hidden="true"
+      className="overflow-visible"
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        className="text-muted"
+      />
+      {/* last point dot */}
+      <circle
+        cx={px(data.length - 1).toFixed(1)}
+        cy={py(scores[scores.length - 1]).toFixed(1)}
+        r="2"
+        className="fill-current text-muted"
+      />
+    </svg>
+  );
+}
+
+function StudioScorecardCard({ scorecards }: { scorecards: StudioScorecard[] }) {
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-lg mb-1">スタジオ・スコアカード</h2>
+      <p className="text-xs text-muted mb-1">
+        平均スコア順（ノイズ除去のためスコア付き作品3本以上が対象）。スコアはAniList優先、なければMAL換算。
+      </p>
+      <p className="text-[0.68rem] text-muted mb-4 leading-relaxed">
+        打率＝各作品が「同クールのスコア中央値」以上だった割合。一貫性＝スコアのばらつきの小ささ。スコアはAniList(無ければMAL)。
+      </p>
+      {scorecards.length === 0 ? (
+        <p className="text-sm text-muted">スコアデータが十分に集まっていません。</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm border-collapse">
+            <thead>
+              <tr className="text-xs text-muted border-b border-line">
+                <th className="text-left font-bold py-2 pr-2 w-6">#</th>
+                <th className="text-left font-bold py-2 pr-3">制作会社</th>
+                <th className="text-center font-bold py-2 px-1 w-14">制作数</th>
+                <th className="text-center font-bold py-2 px-1 w-16">平均スコア</th>
+                <th className="text-left font-bold py-2 px-2 w-32">打率</th>
+                <th className="text-center font-bold py-2 px-1 w-14">一貫性</th>
+                <th className="text-left font-bold py-2 pl-3 w-24">直近トレンド</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scorecards.map((sc, i) => {
+                const baStr = formatBa(sc.battingAverage);
+                const baPct = Math.round(sc.battingAverage * 100);
+                const conColor = consistencyColor(sc.consistency);
+                return (
+                  <tr key={sc.studio} className="border-b border-line/60 hover:bg-paper/60">
+                    <td className="py-2 pr-2 text-xs text-muted tabular-nums">{i + 1}</td>
+                    <td className="py-2 pr-3">
+                      <span className="font-medium text-ink line-clamp-1">{sc.studio}</span>
+                    </td>
+                    {/* 制作数 */}
+                    <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">
+                      {sc.worksCount}
+                    </td>
+                    {/* 平均スコア */}
+                    <td className="py-2 px-1 text-center tabular-nums font-black text-accent">
+                      {Math.round(sc.avgScore)}
+                    </td>
+                    {/* 打率 + ミニバー */}
+                    <td className="py-2 px-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="tabular-nums text-xs font-bold text-ink w-10 shrink-0">
+                          {baStr}
+                        </span>
+                        <div className="flex-1 min-w-0 bg-paper rounded-full h-2">
+                          <div
+                            className="h-2 rounded-full bg-primary/70"
+                            style={{ width: `${Math.max(2, baPct)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                    {/* 一貫性 */}
+                    <td className={`py-2 px-1 text-center tabular-nums font-bold text-xs ${conColor}`}>
+                      {sc.consistency != null ? sc.consistency : "—"}
+                    </td>
+                    {/* 直近トレンド */}
+                    <td className="py-2 pl-3">
+                      <ScoreSparkline data={sc.yearTrend} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
