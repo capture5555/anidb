@@ -23,16 +23,15 @@ export const REGION_NOTES: Record<Region, string> = {
   kanto: "TOKYO MX・テレ東・日テレ・テレ朝・TBS・フジ・NHK ほか",
   kansai: "MBS・ABC・カンテレ・読売テレビ・サンテレビ・KBS京都・テレビ大阪 ほか",
   chubu: "中京テレビ・東海テレビ・メ〜テレ・CBC・テレビ愛知 ほか",
-  bs: "BS11・AT-X・ABEMA・dアニメストア など全国系を優先",
+  bs: "BS11・ABEMA・dアニメストア など全国系を優先",
 };
 
-// 全国放送（BS/CS/NHK）。地域局の後ろに付ける。これらは「放送局」として番組表に出す。
+// 全国放送（BS/NHK）。地域局の後ろに付ける。これらは「放送局」として番組表に出す。
 const BROADCAST_TAIL = [
   "NHK総合",
   "NHK Eテレ",
   "NHK",
   "BS11",
-  "AT-X",
   "BSフジ",
   "BS日テレ",
   "BS朝日",
@@ -43,9 +42,10 @@ const BROADCAST_TAIL = [
   "WOWOW",
 ];
 
-// ネット配信（放送局ではない）。カレンダーの最終フォールバックには使うが、
-// 「この後の放送」「番組表」には出さない。
+// 番組表・「この後の放送」には出さないチャンネル。カレンダーの最終フォールバックには使う。
+// ネット配信（放送局ではない）に加え、AT-X（CS有料）もユーザー方針でここに分類する。
 const STREAMING = [
+  "AT-X",
   "ABEMA",
   "dアニメストア",
   "Amazon",
