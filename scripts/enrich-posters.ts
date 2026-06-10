@@ -6,10 +6,15 @@
  *   npm run enrich-posters -- force    # 全作品を強制再取得
  */
 import { readFileSync } from "node:fs";
-const env = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
-for (const line of env.split("\n")) {
-  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+// .env.local を手動ロード（単体nodeスクリプトはNext.jsと違い自動で読まないため）
+try {
+  const env = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
+  for (const line of env.split("\n")) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  }
+} catch {
+  /* CI等では環境変数が直接セットされるため無視 */
 }
 
 import { fetchPosterUrl } from "../lib/adapters/anilist.ts";

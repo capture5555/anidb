@@ -1,11 +1,13 @@
-# 毎日 JST 6:00 に番組データを取り込む（旧 Vercel cron の置き換え）。
+# 1日2回 JST 6:00 と JST 18:00 に番組データを取り込む（旧 Vercel cron の置き換え）。
 # Actions ランナーで scripts/ingest.ts を直接実行するため、Workers の実行時間制限を受けない。
+# 取り込み後に enrich-posters / enrich-popularity / enrich-scores を自動実行し、
+# 新規追加作品のポスター・スコア・人気度を補完する。
 # 必要な GitHub Secrets: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / ANNICT_TOKEN
 name: cron-ingest
 
 on:
   schedule:
-    - cron: "0 21 * * *" # JST 6:00
+    - cron: "0 9,21 * * *" # JST 18:00 (UTC 09:00) と JST 6:00 (UTC 21:00)
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +17,7 @@ concurrency:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,3 +31,22 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANNICT_TOKEN: ${{ secrets.ANNICT_TOKEN }}
           SYOBOI_BACKFILL: "true"
+      - name: Enrich posters (AniList, poster_url が未設定の作品のみ)
+        continue-on-error: true
+        run: npm run enrich-posters
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Enrich popularity (Annict watchers_count, 今期+来期)
+        continue-on-error: true
+        run: npm run enrich-popularity
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANNICT_TOKEN: ${{ secrets.ANNICT_TOKEN }}
+      - name: Enrich scores (AniList + MAL/Jikan, anilist_score が未設定の作品のみ)
+        continue-on-error: true
+        run: npm run enrich-scores
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
