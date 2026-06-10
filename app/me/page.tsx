@@ -70,7 +70,7 @@ export default function MyPage() {
       const data = await res.json();
       setFeedUrl(data.url ?? null);
       setRegenConfirm(false);
-      setToast("購読URLを再生成しました。Googleカレンダー側も新しいURLで登録し直してください。");
+      setToast("購読URLを再発行しました。Googleカレンダー側も新しいURLで登録し直してください。");
       setTimeout(() => setToast(null), 7000);
     } catch {
       setToast("再生成に失敗しました。もう一度お試しください。");
@@ -130,6 +130,15 @@ export default function MyPage() {
             >
               {copied ? "コピーしました" : "コピー"}
             </button>
+            {!feedDemo && (
+              <button
+                onClick={() => setRegenConfirm(true)}
+                disabled={busy}
+                className="shrink-0 border border-line-strong text-ink-soft px-4 py-2 rounded-lg text-sm hover:border-accent hover:text-accent transition disabled:opacity-40"
+              >
+                URLを再発行
+              </button>
+            )}
           </div>
           <details className="mt-4">
             <summary className="text-sm text-ink-soft cursor-pointer select-none hover:text-ink">
@@ -145,39 +154,33 @@ export default function MyPage() {
               <li>「アニメ放送カレンダー」が一覧に追加されれば完了（スマホにも自動で同期されます）</li>
             </ol>
           </details>
-          {!feedDemo && (
-            <div className="mt-4 pt-4 border-t border-line">
-              {regenConfirm ? (
-                <div className="text-sm">
-                  <p className="text-ink-soft leading-relaxed">
-                    URLを再生成すると、いまGoogleカレンダーに設定済みのURLは無効になり、再設定が必要です。よろしいですか？
-                  </p>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={() => void regenerate()}
-                      disabled={busy}
-                      className="bg-accent text-white px-4 py-1.5 rounded-lg text-sm hover:opacity-90 transition disabled:opacity-40"
-                    >
-                      再生成する
-                    </button>
-                    <button
-                      onClick={() => setRegenConfirm(false)}
-                      disabled={busy}
-                      className="border border-line-strong px-4 py-1.5 rounded-lg text-sm hover:bg-paper transition disabled:opacity-40"
-                    >
-                      やめる
-                    </button>
-                  </div>
-                </div>
-              ) : (
+          {!feedDemo && regenConfirm && (
+            <div className="mt-4 pt-4 border-t border-line text-sm">
+              <p className="text-ink-soft leading-relaxed">
+                URLを再発行すると、いまGoogleカレンダーに設定済みのURLは無効になり、新しいURLでの再設定が必要です。よろしいですか？
+              </p>
+              <div className="mt-3 flex gap-2">
                 <button
-                  onClick={() => setRegenConfirm(true)}
-                  className="text-xs text-muted hover:text-accent transition"
+                  onClick={() => void regenerate()}
+                  disabled={busy}
+                  className="bg-accent text-white px-4 py-1.5 rounded-lg text-sm hover:opacity-90 transition disabled:opacity-40"
                 >
-                  URLが他人に知られた場合は再生成できます →
+                  再発行する
                 </button>
-              )}
+                <button
+                  onClick={() => setRegenConfirm(false)}
+                  disabled={busy}
+                  className="border border-line-strong px-4 py-1.5 rounded-lg text-sm hover:bg-paper transition disabled:opacity-40"
+                >
+                  やめる
+                </button>
+              </div>
             </div>
+          )}
+          {!feedDemo && !regenConfirm && (
+            <p className="mt-2 text-[0.72rem] text-muted">
+              URLが他人に知られた場合は「URLを再発行」で作り直せます（旧URLは無効になります）。
+            </p>
           )}
         </div>
       )}
