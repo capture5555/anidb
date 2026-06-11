@@ -629,39 +629,80 @@ async function buildSeasonMedianMap(
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (seasonKeys.size === 0) return out;
-  try {
-    const scoresBySeason = new Map<string, number[]>();
-    const seen = new Set<string>();
-    // 関連シーズンのみ全作品スコアを取得（work_staffからanimation-productionクレジットで代用）
-    for (const key of seasonKeys) {
-      const [yearStr, seasonName] = key.split("|");
+  // シーズンごとに独立して取得・集計する。1シーズンの取得が失敗しても、
+  // 既に計算できた他シーズンの中央値は捨てない（従来は out.clear() で全消ししていた）。
+  for (const key of seasonKeys) {
+    const [yearStr, seasonName] = key.split("|");
+    const scores: number[] = [];
+    try {
       for (let from = 0; ; from += 1000) {
         const { data, error } = await db
           .from("works")
-          .select("id, season_year, season_name, anilist_score, mal_score")
+          .select("id, anilist_score, mal_score")
           .eq("season_year", Number(yearStr))
           .eq("season_name", seasonName)
           .range(from, from + 999);
         if (error) throw error;
-        const batch = (data ?? []) as { id: string; season_year: number | null; season_name: string | null; anilist_score: number | null; mal_score: number | null }[];
+        const batch = (data ?? []) as {
+          id: string;
+          anilist_score: number | null;
+          mal_score: number | null;
+        }[];
         for (const w of batch) {
-          if (seen.has(w.id)) continue;
-          seen.add(w.id);
-          const sc = w.anilist_score ?? (w.mal_score != null ? Math.round(Number(w.mal_score) * 10) : null);
-          if (sc == null || !w.season_year || !w.season_name) continue;
-          const k = `${w.season_year}|${w.season_name}`;
-          if (!scoresBySeason.has(k)) scoresBySeason.set(k, []);
-          scoresBySeason.get(k)!.push(sc);
+          const sc =
+            w.anilist_score ?? (w.mal_score != null ? Math.round(Number(w.mal_score) * 10) : null);
+          if (sc != null) scores.push(sc);
         }
         if (!data || data.length < 1000) break;
       }
+      if (scores.length > 0) out.set(key, median(scores));
+    } catch {
+      // このシーズンの中央値が取れなくても他シーズンは続行（打率は部分的に算出）。
     }
-    for (const [k, arr] of scoresBySeason) out.set(k, median(arr));
-  } catch {
-    // 打率が計算できなくても続行
-    out.clear();
   }
   return out;
+}
+
+/** 配列を size 件ずつに分割する。 */
+function chunkIds<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/**
+ * 共起カウント: work_id 群を100件ずつ chunk しつつ makeQuery を実行し、
+ * (person_name, work_id) で重複排除して person_name ごとの作品数を数える。
+ *
+ * work_id を丸ごと .in() に渡すと、作品数の多い人物で IN リストが巨大化して
+ * URL 長超過 → 取りこぼし（しかも catch で握りつぶされ共演者が空）になるため、必ず chunk する。
+ * 1 chunk 内でも結果が1000行を超え得るので range でページングする。
+ */
+async function countCoOccurrence(
+  workIds: string[],
+  makeQuery: (
+    ids: string[],
+    from: number,
+  ) => PromiseLike<{ data: { person_name: string; work_id: string }[] | null; error: unknown }>,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const ids of chunkIds(workIds, 100)) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await makeQuery(ids, from);
+      if (error) throw error;
+      const rows = data ?? [];
+      for (const r of rows) {
+        if (!r.person_name) continue;
+        const key = `${r.person_name}|${r.work_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        counts.set(r.person_name, (counts.get(r.person_name) ?? 0) + 1);
+      }
+      if (rows.length < 1000) break;
+    }
+  }
+  return counts;
 }
 
 /**
@@ -826,31 +867,19 @@ async function getVoiceActorDetailUncached(name: string): Promise<VoiceActorDeta
       });
     }
 
-    // 共演者カウント（同じ作品に出ている他の声優）
-    const workIdSet = new Set(allEntries.map((e) => e.work.id));
-    const coActorCount = new Map<string, number>();
+    // 共演者カウント（同じ作品に出ている他の声優）。IN は chunk 必須。
+    const workIds = [...new Set(allEntries.map((e) => e.work.id))];
+    let coActorCount = new Map<string, number>();
     try {
-      const coRows: { person_name: string; work_id: string }[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await db
+      coActorCount = await countCoOccurrence(workIds, (ids, from) =>
+        db
           .from("work_casts")
           .select("person_name, work_id")
-          .in("work_id", [...workIdSet])
+          .in("work_id", ids)
           .neq("person_name", trimmed)
           .not("person_name", "is", null)
-          .range(from, from + 999);
-        if (error) throw error;
-        coRows.push(...((data ?? []) as { person_name: string; work_id: string }[]));
-        if (!data || data.length < 1000) break;
-      }
-      // (person_name, work_id) で重複排除してカウント
-      const seen = new Set<string>();
-      for (const r of coRows) {
-        const key = `${r.person_name}|${r.work_id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        coActorCount.set(r.person_name, (coActorCount.get(r.person_name) ?? 0) + 1);
-      }
+          .range(from, from + 999),
+      );
     } catch {
       // 共演者取得失敗は握りつぶす
     }
@@ -859,31 +888,20 @@ async function getVoiceActorDetailUncached(name: string): Promise<VoiceActorDeta
       .slice(0, 10)
       .map(([n, count]) => ({ name: n, count, type: "va" as const }));
 
-    // 共演スタッフ（同じ作品の監督・シリーズ構成・キャラデザ）
-    const coStaffCount = new Map<string, number>();
+    // 共演スタッフ（同じ作品の監督・シリーズ構成・キャラデザ）。IN は chunk 必須。
+    let coStaffCount = new Map<string, number>();
     try {
-      const sfRows: { person_name: string; work_id: string }[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await db
+      coStaffCount = await countCoOccurrence(workIds, (ids, from) =>
+        db
           .from("work_staff")
           .select("person_name, work_id")
-          .in("work_id", [...workIdSet])
+          .in("work_id", ids)
+          .neq("person_name", trimmed)
           .not("person_name", "is", null)
           .neq("person_name", "")
           .or("role.ilike.%監督%,role.ilike.%シリーズ構成%,role.ilike.%キャラクターデザイン%")
-          .range(from, from + 999);
-        if (error) throw error;
-        sfRows.push(...((data ?? []) as { person_name: string; work_id: string }[]));
-        if (!data || data.length < 1000) break;
-      }
-      const seen = new Set<string>();
-      for (const r of sfRows) {
-        if (!r.person_name) continue;
-        const key = `${r.person_name}|${r.work_id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        coStaffCount.set(r.person_name, (coStaffCount.get(r.person_name) ?? 0) + 1);
-      }
+          .range(from, from + 999),
+      );
     } catch {
       // 握りつぶす
     }
@@ -1074,30 +1092,19 @@ async function getStaffDetailUncached(name: string): Promise<StaffDetail | null>
       });
     }
 
-    // 共演声優
-    const workIdSet = new Set(allEntries.map((e) => e.work.id));
-    const coActorCount = new Map<string, number>();
+    // 共演声優。IN は chunk 必須。staff 本人がキャスト credit を持つ場合は自分を除外。
+    const workIds = [...new Set(allEntries.map((e) => e.work.id))];
+    let coActorCount = new Map<string, number>();
     try {
-      const coRows: { person_name: string; work_id: string }[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await db
+      coActorCount = await countCoOccurrence(workIds, (ids, from) =>
+        db
           .from("work_casts")
           .select("person_name, work_id")
-          .in("work_id", [...workIdSet])
+          .in("work_id", ids)
+          .neq("person_name", trimmed)
           .not("person_name", "is", null)
-          .range(from, from + 999);
-        if (error) throw error;
-        coRows.push(...((data ?? []) as { person_name: string; work_id: string }[]));
-        if (!data || data.length < 1000) break;
-      }
-      const seen = new Set<string>();
-      for (const r of coRows) {
-        if (!r.person_name) continue;
-        const key = `${r.person_name}|${r.work_id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        coActorCount.set(r.person_name, (coActorCount.get(r.person_name) ?? 0) + 1);
-      }
+          .range(from, from + 999),
+      );
     } catch {
       // 握りつぶす
     }
@@ -1106,32 +1113,20 @@ async function getStaffDetailUncached(name: string): Promise<StaffDetail | null>
       .slice(0, 10)
       .map(([n, count]) => ({ name: n, count, type: "va" as const }));
 
-    // 共演スタッフ
-    const coStaffCount = new Map<string, number>();
+    // 共演スタッフ。IN は chunk 必須。
+    let coStaffCount = new Map<string, number>();
     try {
-      const sfRows: { person_name: string; work_id: string }[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await db
+      coStaffCount = await countCoOccurrence(workIds, (ids, from) =>
+        db
           .from("work_staff")
           .select("person_name, work_id")
-          .in("work_id", [...workIdSet])
+          .in("work_id", ids)
           .neq("person_name", trimmed)
           .not("person_name", "is", null)
           .neq("person_name", "")
           .or("role.ilike.%監督%,role.ilike.%シリーズ構成%,role.ilike.%キャラクターデザイン%")
-          .range(from, from + 999);
-        if (error) throw error;
-        sfRows.push(...((data ?? []) as { person_name: string; work_id: string }[]));
-        if (!data || data.length < 1000) break;
-      }
-      const seen = new Set<string>();
-      for (const r of sfRows) {
-        if (!r.person_name) continue;
-        const key = `${r.person_name}|${r.work_id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        coStaffCount.set(r.person_name, (coStaffCount.get(r.person_name) ?? 0) + 1);
-      }
+          .range(from, from + 999),
+      );
     } catch {
       // 握りつぶす
     }

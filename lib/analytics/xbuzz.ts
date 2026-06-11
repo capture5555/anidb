@@ -434,7 +434,9 @@ async function getEpisodeBuzzLeadersUncached(limit = 12): Promise<EpisodeBuzzLea
         .not("episode_id", "is", null)
         .order("captured_at", { ascending: false })
         .limit(3000);
-      if (res.error) return []; // episode_id 未作成など → 機能ごと非表示
+      // チャンク単位のエラーはそのチャンクだけスキップ（episode_id 未作成なら全チャンク
+      // 失敗して結果は空＝従来どおり機能オフ。一時エラー時は他チャンクの結果を保てる）。
+      if (res.error) continue;
       for (const r of res.data ?? []) {
         const o = r as Record<string, unknown>;
         const wid = o.work_id as string;

@@ -25,8 +25,12 @@ export interface EpisodeHeatInput {
 }
 
 function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  // 放送はJST基準。サーバ(UTC)でレンダーすると深夜帯の放送日が1日ずれるため、
+  // +9時間してから UTC ゲッターで月日を取り出す。
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const jst = new Date(t + 9 * 60 * 60 * 1000);
+  return `${jst.getUTCMonth() + 1}/${jst.getUTCDate()}`;
 }
 
 const W = 760;

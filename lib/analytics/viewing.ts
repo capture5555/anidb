@@ -598,8 +598,10 @@ export interface EpisodeHeat {
   totalComments: number;
   points: MinuteHeatPoint[];
   peaks: PeakInfo[];
-  /** ピーク分の代表コメント（analytics_peak_comments 由来の文字列配列）。無い場合は空配列。 */
-  representativeComments: RepresentativeComment[];
+  /** ピーク分の代表コメント（analytics_peak_comments 由来の文字列配列）。
+   *  このフィールド追加前に書かれたスナップショットには存在しないため optional。
+   *  読み手は `?? []` でフォールバックすること。 */
+  representativeComments?: RepresentativeComment[];
 }
 
 export interface WorkAnalysis {
