@@ -17,6 +17,7 @@ import type { RatedWork } from "../analytics.ts";
 import type { GlobalGapRow } from "./globalGap.ts";
 import type { FastStartRow } from "./fastStart.ts";
 import type { RiserRow } from "./risers.ts";
+import type { SequelProspectRow } from "./sequelProspect.ts";
 
 const REACTION_LABEL: Record<ReactionCategory, string> = {
   laugh: "笑い",
@@ -598,4 +599,46 @@ export function risersComment(rows: RiserRow[]): string | null {
   const ep = top.latestLabel ? top.latestLabel : "最新話";
   const pct = Math.round(top.deltaPct);
   return `直近で最も伸びたのは『${top.title}』${ep}（前話まで平均比+${pct}%・${top.latestComments.toLocaleString()}コメント）。`;
+}
+
+/**
+ * 続編可能性スコアセクションのひとことメモ（業界データタブ用）。
+ * green 最上位作品と、継続率・人気が両立している点を指摘する。
+ * データが空の場合は null。
+ */
+export function sequelProspectComment(rows: SequelProspectRow[]): string | null {
+  if (rows.length === 0) return null;
+  const top = rows[0];
+
+  // green 作品数
+  const greenCount = rows.filter((r) => r.signal === "green").length;
+  const yellowCount = rows.filter((r) => r.signal === "yellow").length;
+
+  const scoreNote = `（スコア ${top.score.toFixed(0)}点）`;
+
+  // 1位の作品の強みを言語化
+  const strengths: string[] = [];
+  if (top.retentionPct != null && top.retentionPct >= 70) {
+    strengths.push(`継続率${Math.round(top.retentionPct)}%`);
+  }
+  if (top.popularityPctl != null && top.popularityPctl >= 70) {
+    strengths.push("高い人気");
+  }
+  if (top.xVolume != null && top.xVolume >= 3) {
+    strengths.push(`X盛り上がり${Math.round(top.xVolume * 10) / 10}/5`);
+  }
+
+  const strengthNote =
+    strengths.length >= 2
+      ? `${strengths.join("と")}が両立`
+      : strengths.length === 1
+        ? `特に${strengths[0]}が突出`
+        : "複数シグナルをバランスよく積み上げた";
+
+  const distNote =
+    greenCount > 0
+      ? `今期: 続編期待大${greenCount}作品・条件次第${yellowCount}作品。`
+      : `今期: 条件次第${yellowCount}作品が多く、現状厳しい作品が大半。`;
+
+  return `続編期待が最も高いのは『${top.title}』${scoreNote}。${strengthNote}。${distNote}`;
 }
