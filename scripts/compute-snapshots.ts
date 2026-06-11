@@ -39,8 +39,11 @@ import {
   getJikkyoRetentionSeriesLive,
   getPeakMomentsLive,
   getRetentionSeriesLive,
+  getWorkAnalysisLive,
 } from "../lib/analytics/viewing.ts";
 import { getCohortXBuzzForSnapshot } from "../lib/analytics/xbuzz.ts";
+import { getAdminClient } from "../lib/supabase/admin.ts";
+import { seasonOf } from "../lib/season.ts";
 
 /**
  * 計算ユニット: key と「ページが使うデフォルト引数での LIVE 計算」のペア。
@@ -84,9 +87,60 @@ async function runUnit(u: Unit): Promise<{ key: string; ok: boolean; count?: num
   }
 }
 
+/**
+ * 今期放送中TV作品の作品別分析("work_analysis:{id}")を事前計算してスナップショット保存する。
+ * 1作品ごとに getWorkAnalysisLive を呼ぶ重い処理のため、4並列のバッチに分けて実行する。
+ * 各作品は個別に try/catch し、1つ失敗しても続行する。非今期作品はページ側で LIVE フォールバック。
+ */
+async function computeWorkAnalysisSnapshots(): Promise<void> {
+  const BATCH = 4;
+  let works: { id: string }[] = [];
+  try {
+    const db = getAdminClient();
+    const { year, season } = seasonOf(new Date());
+    const { data, error } = await db
+      .from("works")
+      .select("id")
+      .eq("season_year", year)
+      .eq("season_name", season)
+      .or("media.neq.movie,media.is.null")
+      .order("popularity", { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    works = (data ?? []) as { id: string }[];
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`FAIL work_analysis (select works): ${msg}`);
+    return;
+  }
+
+  let written = 0;
+  for (let i = 0; i < works.length; i += BATCH) {
+    const batch = works.slice(i, i + BATCH);
+    const oks = await Promise.all(
+      batch.map(async (w) => {
+        try {
+          const result = await getWorkAnalysisLive(w.id);
+          await writeSnapshot(`work_analysis:${w.id}`, result);
+          return 1;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`FAIL work_analysis:${w.id}: ${msg}`);
+          return 0;
+        }
+      }),
+    );
+    written += oks.reduce((a, b) => a + b, 0);
+  }
+  console.log(`work_analysis snapshots written=${written}`);
+}
+
 async function main() {
   // 全ユニットを並列実行（互いに独立。各々が個別に try/catch される）。
   const results = await Promise.all(UNITS.map(runUnit));
+
+  // 今期放送中TV作品の作品別分析スナップショット（バッチ並列・個別 try/catch）。
+  await computeWorkAnalysisSnapshots();
   const ok = results.filter((r) => r.ok).length;
   const failed = results.filter((r) => !r.ok);
   console.log(`compute-snapshots done: ${ok}/${results.length} succeeded` +

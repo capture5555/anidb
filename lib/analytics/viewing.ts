@@ -576,8 +576,10 @@ export interface WorkAnalysis {
   satisfactionPoints: { episodeNumber: number; numberText: string | null; rate: number }[];
 }
 
-/** 作品の全収集済み放送回の分析データ（全話の盛り上がりグラフ＋話数トレンド用） */
-export async function getWorkAnalysis(workId: string): Promise<WorkAnalysis | null> {
+/** 作品の全収集済み放送回の分析データ（全話の盛り上がりグラフ＋話数トレンド用）の LIVE 計算。
+ * 話数ごとに programs + 分単位の minute_heat/reactions/peaks を引くため重い。
+ * compute-snapshots からはこの素の関数を呼ぶ。 */
+export async function getWorkAnalysisLive(workId: string): Promise<WorkAnalysis | null> {
   const db = getAdminClient();
 
   const { data: work } = await db
@@ -695,6 +697,22 @@ export async function getWorkAnalysis(workId: string): Promise<WorkAnalysis | nu
   if (result.episodes.length === 0 && result.annictPoints.length === 0) return null;
   return result;
 }
+
+/**
+ * 作品の全収集済み放送回の分析データ。エクスポート名・シグネチャ・戻り値は従来どおり。
+ * 今期放送中TV作品は compute-snapshots が事前計算したスナップショット("work_analysis:{id}")を読み、
+ * 無ければ LIVE 計算へフォールバック（防御的・クラッシュしない）。
+ *
+ * workId 単位で 15 分メモ化し、スナップショット読み取り（DB往復）と LIVE フォールバックの
+ * 双方を覆う。今期作品のページレンダリングごとの DB ヒットを避けるのが狙い。
+ * 現在30分おきに更新される今期作品のスナップショットに対し、最大15分の追加滞留が生じるが許容範囲。
+ */
+export const getWorkAnalysis = memoizeTTL(
+  (workId: string): Promise<WorkAnalysis | null> =>
+    fromSnapshotOrLive(`work_analysis:${workId}`, () => getWorkAnalysisLive(workId)),
+  (workId: string) => `work_analysis:${workId}`,
+  900000,
+);
 
 /** 特定作品の分析済み放送回（盛り上がりグラフ用）。最新の1件を返す */
 export async function getWorkHeat(workId: string): Promise<ProgramHeat | null> {

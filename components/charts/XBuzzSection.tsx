@@ -199,6 +199,83 @@ function PostsTimeline({ posts }: { posts: XBuzzPost[] }) {
   );
 }
 
+/* ---------------------------------------------------------------- episode buzz list */
+
+/** 1話ぶんの代表ポスト（最大n件）を小さなリンク列で出す。 */
+function EpisodePosts({ posts, max = 3 }: { posts: XBuzzPost[]; max?: number }) {
+  const list = posts.filter((p) => p.text && p.text.trim().length > 0).slice(0, max);
+  if (list.length === 0) return null;
+  return (
+    <ul className="mt-2 space-y-1">
+      {list.map((p) => (
+        <li key={p.statusId} className="text-[0.72rem] text-ink-soft leading-snug">
+          <a
+            href={p.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline underline-offset-2"
+          >
+            ▸
+          </a>{" "}
+          <span className="text-muted">
+            {p.text!.length > 64 ? `${p.text!.slice(0, 64)}…` : p.text}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * 話数ごとの X 評価を縦に並べる。各話: 話数ラベル＋volumeゲージ＋sentiment＋topics＋
+ * （あれば）その話の声サマリ＋代表ポスト。話数別に X の反応を追えるようにするのが狙い。
+ */
+function EpisodeBuzzList({
+  episodes,
+  postsByEpisode,
+}: {
+  episodes: WorkXBuzz["episodes"];
+  postsByEpisode: Map<string, XBuzzPost[]>;
+}) {
+  return (
+    <ul className="space-y-3">
+      {episodes.map((ep, i) => {
+        const sum =
+          ep.summary && ep.summary.length > 220 ? `${ep.summary.slice(0, 220)}…` : ep.summary;
+        const eps = ep.episodeId ? (postsByEpisode.get(ep.episodeId) ?? []) : [];
+        return (
+          <li
+            key={`${ep.episodeId ?? ep.episodeLabel}-${ep.capturedAt}-${i}`}
+            className="rounded-lg bg-paper/60 px-3 py-2.5"
+          >
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-xs font-bold text-ink-soft tabular-nums">
+                {ep.episodeLabel}
+              </span>
+              <VolumeGauge volume={ep.volume} size="sm" />
+              <span className="text-[0.68rem] font-bold text-muted tabular-nums">
+                {Math.max(0, Math.min(5, Math.round(ep.volume)))}/5
+              </span>
+              <SentimentChip sentiment={ep.sentiment} />
+            </div>
+            {ep.topics.length > 0 && (
+              <div className="mt-1.5">
+                <TopicChips topics={ep.topics} max={6} />
+              </div>
+            )}
+            {sum && (
+              <p className="mt-1.5 text-[0.78rem] leading-relaxed text-ink-soft whitespace-pre-wrap">
+                {sum}
+              </p>
+            )}
+            <EpisodePosts posts={eps} />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /* ================================================================ section */
 
 export function XBuzzSection({
@@ -217,6 +294,15 @@ export function XBuzzSection({
       : (buzz?.summary ?? null);
   const citations = buzz?.citations.slice(0, 8) ?? [];
   const episodes = buzz?.episodes ?? [];
+
+  // 実ポストを episode_id ごとにまとめ、話数別の代表ポスト表示に使う。
+  const postsByEpisode = new Map<string, XBuzzPost[]>();
+  for (const p of posts) {
+    if (!p.episodeId) continue;
+    const arr = postsByEpisode.get(p.episodeId);
+    if (arr) arr.push(p);
+    else postsByEpisode.set(p.episodeId, [p]);
+  }
 
   return (
     <section className="card p-5 sm:p-6">
@@ -272,27 +358,11 @@ export function XBuzzSection({
         </div>
       )}
 
-      {/* 話ごとの評価 */}
+      {/* 話ごとの評価（話数別の盛り上がり一覧 ＋ 各話の声） */}
       {episodes.length > 0 && (
         <div className="mb-5">
           <h3 className="text-xs font-bold text-muted mb-2">話ごとの評価</h3>
-          <ul className="divide-y divide-line">
-            {episodes.map((ep, i) => (
-              <li
-                key={`${ep.episodeLabel}-${ep.capturedAt}-${i}`}
-                className="flex items-center gap-3 py-2"
-              >
-                <span className="text-xs font-bold text-ink-soft w-16 shrink-0 tabular-nums">
-                  {ep.episodeLabel}
-                </span>
-                <VolumeGauge volume={ep.volume} size="sm" />
-                <SentimentChip sentiment={ep.sentiment} />
-                {ep.topics[0] && (
-                  <span className="text-[0.72rem] text-muted truncate">{ep.topics[0]}</span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <EpisodeBuzzList episodes={episodes} postsByEpisode={postsByEpisode} />
         </div>
       )}
 
