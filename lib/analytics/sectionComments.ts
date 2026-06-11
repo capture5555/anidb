@@ -13,6 +13,7 @@ import type { OverallRankingRow } from "./overallRanking.ts";
 import type { VaScorecard, StaffScorecard } from "./people.ts";
 import type { StudioScorecard } from "./studios.ts";
 import type { GenreInsight } from "./genres.ts";
+import { genreJa } from "../genres.ts";
 import type { RatedWork } from "../analytics.ts";
 import type { GlobalGapRow } from "./globalGap.ts";
 import type { FastStartRow } from "./fastStart.ts";
@@ -414,10 +415,10 @@ export function genreTrendsComment(insights: GenreInsight[]): string | null {
   const parts: string[] = [];
   if (withScore.length > 0) {
     const topScore = withScore.reduce((a, b) => ((b.avgScore ?? 0) > (a.avgScore ?? 0) ? b : a));
-    parts.push(`平均スコア最高ジャンルは「${topScore.genre}」（${topScore.avgScore?.toFixed(1)}点）`);
+    parts.push(`平均スコア最高ジャンルは「${genreJa(topScore.genre)}」（${topScore.avgScore?.toFixed(1)}点）`);
   }
   const topCount = insights.reduce((a, b) => (b.worksCount > a.worksCount ? b : a));
-  parts.push(`最多作品ジャンルは「${topCount.genre}」（${topCount.worksCount}本）`);
+  parts.push(`最多作品ジャンルは「${genreJa(topCount.genre)}」（${topCount.worksCount}本）`);
   return parts.join("・") + "。";
 }
 
@@ -598,7 +599,7 @@ export function seasonHeatmapComment(series: RetentionSeries[]): string | null {
 export function risersComment(rows: RiserRow[]): string | null {
   if (rows.length === 0) return null;
   const top = rows[0];
-  const ep = top.latestLabel ? top.latestLabel : "最新話";
+  const ep = top.latestLabel ? shortEp(top.latestLabel) : "最新話";
   const pct = Math.round(top.deltaPct);
   return `直近で最も伸びたのは『${top.title}』${ep}（前話まで平均比+${pct}%・${top.latestComments.toLocaleString()}コメント）。`;
 }

@@ -10,6 +10,7 @@ import type { StudioScorecard } from "./studios";
 import type { VaScorecard, StaffScorecard } from "./people";
 import type { GenreInsight } from "./genres";
 import type { FranchiseGroup } from "./franchise";
+import { genreJa } from "../genres";
 
 /* ----------------------------------------------------------------
    ユーティリティ
@@ -229,7 +230,7 @@ export function genreOpportunity(rows: GenreInsight[]): string | null {
   // 候補の中で avgPopularity が最大のものを選ぶ
   const best = candidates.reduce((a, b) => (b.avgPopularity > a.avgPopularity ? b : a));
 
-  return `グリーンライト機会：「${best.genre}」は平均人気 ${best.avgPopularity.toLocaleString()} と需要が高いが、作品数は ${best.worksCount} 本と少ない。供給余地あり。`;
+  return `グリーンライト機会：「${genreJa(best.genre)}」は平均人気 ${best.avgPopularity.toLocaleString()} と需要が高いが、作品数は ${best.worksCount} 本と少ない。供給余地あり。`;
 }
 
 /* ----------------------------------------------------------------
