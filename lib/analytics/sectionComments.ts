@@ -132,3 +132,33 @@ export function hotProgramsComment(
   const ep = top.episodeLabel ? ` ${shortEp(top.episodeLabel)}` : "";
   return `直近で最も実況が盛り上がったのは「${top.workTitle}」${ep}（${top.totalComments.toLocaleString()}コメント）。`;
 }
+
+/**
+ * 放送回ごとの実況の傾向メモ（その回のリアクション内訳＋規模＋瞬間最大から）。
+ * 母数が小さい回は null。話数を選んだときに「この回はこういう傾向」を出すのに使う。
+ */
+export function episodeJikkyoTendency(input: {
+  totalComments: number;
+  reactionCounts: Partial<Record<ReactionCategory, number>>;
+  peakPerMinute?: number;
+}): string | null {
+  const total = input.totalComments;
+  if (total < 20) return null; // 母数が少なすぎる回はメモなし
+  const entries = (Object.entries(input.reactionCounts) as [ReactionCategory, number][])
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  const parts: string[] = [];
+  if (entries.length > 0) {
+    const top = REACTION_LABEL[entries[0][0]] ?? entries[0][0];
+    const second = entries[1] ? `・${REACTION_LABEL[entries[1][0]] ?? entries[1][0]}` : "";
+    parts.push(`実況は「${top}${second}」系の反応が中心`);
+  }
+  if (input.peakPerMinute && input.peakPerMinute >= 100) {
+    parts.push("一気に伸びる瞬間（祭り）あり");
+  }
+  const scale =
+    total >= 2000 ? "盛況" : total >= 500 ? "まずまずの賑わい" : "落ち着いた反応";
+  parts.push(`全体は${scale}（${total.toLocaleString()}コメント）`);
+  return `${parts.join("、")}。`;
+}
