@@ -79,7 +79,12 @@ import {
   xBuzzVsJikkyoComment,
   epLeadersComment,
   topicsComment,
+  overallRankingComment,
 } from "@/lib/analytics/sectionComments";
+import {
+  getOverallRanking,
+  type OverallRankingRow,
+} from "@/lib/analytics/overallRanking";
 import { QuadrantScatter } from "@/components/charts/QuadrantScatter";
 import { SEASON_LABELS, SEASON_ORDER } from "@/lib/season";
 import { formatPopularity, formatAirShort } from "@/lib/format";
@@ -197,10 +202,111 @@ export default async function AnalyticsPage({
   );
 }
 
+/* ================================================================ 総合ランキングカード */
+
+/**
+ * 今期クールの総合ランキングを表示するカード。
+ * 各シグナルのパーセンタイルを細い横バーで表示し、CSVエクスポートにも対応。
+ */
+function OverallRankingCard({ rows }: { rows: OverallRankingRow[] }) {
+  const comment = overallRankingComment(rows);
+
+  const csvHeaders = ["順位", "作品名", "総合スコア", "認知", "批評", "実況", "X", "継続/満足"];
+  const csvRows = rows.map((r, i) => [
+    i + 1,
+    r.title,
+    r.score,
+    r.signals.awareness ?? "",
+    r.signals.review ?? "",
+    r.signals.jikkyo ?? "",
+    r.signals.xbuzz ?? "",
+    r.signals.retention ?? "",
+  ] as (string | number | null)[]);
+
+  return (
+    <section className="card p-5 sm:p-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+        <h2 className="section-title text-lg">総合ランキング（今期）</h2>
+        <CsvExportButton filename="overall_ranking.csv" headers={csvHeaders} rows={csvRows} />
+      </div>
+      <p className="text-xs text-muted mb-4">
+        認知（Annictウォッチャー数）・批評（AniList/MALスコア）・実況エンゲージ（ニコニコ実況コメント総数）・
+        Xバズ・継続/満足度の5シグナルをコホート内パーセンタイルで正規化し加重平均したスコア(0〜100)。
+        欠測シグナルは残り重みで自動再正規化。
+      </p>
+      <SectionNote text={comment} />
+      <ol className="divide-y divide-line">
+        {rows.slice(0, 20).map((row, i) => (
+          <li key={row.workId} className="flex items-start gap-3 py-2.5">
+            <span
+              className={`w-6 text-center font-black tabular-nums shrink-0 mt-1 ${
+                i < 3 ? "text-accent" : "text-muted"
+              }`}
+            >
+              {i + 1}
+            </span>
+            <Link href={`/analytics/works/${row.workId}`} className="shrink-0">
+              <WorkCover
+                id={row.workId}
+                title={row.title}
+                url={row.posterUrl}
+                className="w-9 h-12 rounded-md"
+              />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <Link
+                href={`/analytics/works/${row.workId}`}
+                className="block text-sm font-bold text-ink hover:text-primary transition truncate"
+              >
+                {row.title}
+              </Link>
+              {/* シグナル内訳バー */}
+              <div className="mt-1 grid grid-cols-5 gap-x-2 gap-y-0.5">
+                {(
+                  [
+                    { label: "認知", value: row.signals.awareness },
+                    { label: "批評", value: row.signals.review },
+                    { label: "実況", value: row.signals.jikkyo },
+                    { label: "X", value: row.signals.xbuzz },
+                    { label: "継続", value: row.signals.retention },
+                  ] as { label: string; value: number | null }[]
+                ).map(({ label, value }) => (
+                  <div key={label}>
+                    <div className="text-[0.55rem] text-muted leading-none mb-0.5">{label}</div>
+                    <div className="h-1.5 rounded-full bg-line overflow-hidden">
+                      {value != null ? (
+                        <div
+                          className="h-full rounded-full bg-accent"
+                          style={{ width: `${value}%` }}
+                        />
+                      ) : (
+                        <div className="h-full rounded-full bg-line" style={{ width: "0%" }} />
+                      )}
+                    </div>
+                    <div className="text-[0.55rem] text-muted tabular-nums mt-0.5 text-right">
+                      {value != null ? Math.round(value) : "—"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="shrink-0 text-right min-w-[3rem]">
+              <span className="block font-black text-accent tabular-nums text-base">
+                {row.score.toFixed(0)}
+              </span>
+              <span className="block text-[0.62rem] text-muted">pts</span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 /* ================================================================ 視聴分析 */
 
 async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
-  const [retention, hot, peaks, ratios, timeslots] = await Promise.all([
+  const [retention, hot, peaks, ratios, timeslots, overallRanking] = await Promise.all([
     basis === "annict"
       ? getRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] }))
       : getJikkyoRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] })),
@@ -208,10 +314,16 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
     getPeakMoments(10).catch(() => []),
     getReactionRatios(1000).catch(() => []),
     getTimeslotHeatmap().catch((): TimeslotHeatmap => ({ cells: [], maxAvg: 0 })),
+    getOverallRanking().catch((): OverallRankingRow[] => []),
   ]);
 
   return (
     <div className="space-y-5">
+      {/* 総合ランキング */}
+      {overallRanking.length > 0 && (
+        <OverallRankingCard rows={overallRanking} />
+      )}
+
       {/* 残留率 */}
       <section className="card p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
