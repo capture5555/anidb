@@ -14,11 +14,11 @@ const gothic = Noto_Sans_JP({
 
 export const metadata: Metadata = {
   title: {
-    default: "アニメ放送カレンダー｜放送中・放送予定のアニメ情報",
-    template: "%s｜アニメ放送カレンダー",
+    default: "アニメ作品データベース｜放送中・放送予定のアニメ情報と分析",
+    template: "%s｜アニメ作品データベース",
   },
   description:
-    "今期・来期・放送中・放送予定のアニメ情報をまとめて閲覧。気になる作品はカレンダー購読でGoogleカレンダーへ自動反映できます。",
+    "今期・来期・放送中・放送予定のアニメ情報と分析をまとめて閲覧。実況・Xバズ・継続率などの分析や、気になる作品のカレンダー購読にも対応。",
 };
 
 export default function RootLayout({
