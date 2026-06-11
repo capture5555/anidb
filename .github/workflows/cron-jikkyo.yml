@@ -1,6 +1,7 @@
 # 3時間おきにニコニコ実況の過去ログを収集する（分単位の盛り上がり分析の元データ）。
-# 収集対象は「26時間前〜45分前に放送が終わった未収集の番組」なので、
+# 収集対象は「lookback_hours 前〜45分前に放送が終わった未収集の番組」なので、
 # 3時間おき＋ルックバックの重複があっても analytics_collection_log により冪等。
+# 手動実行(workflow_dispatch)では lookback_hours / retry_failed を指定して過去の抜け落ちを backfill 可能。
 # 必要な GitHub Secrets: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
 name: cron-jikkyo
 
@@ -8,6 +9,16 @@ on:
   schedule:
     - cron: "15 */3 * * *"
   workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: "さかのぼり時間（h）。既定26。抜け落ち backfill は 720(30日) など大きめに"
+        required: false
+        default: "26"
+      retry_failed:
+        description: "空取得(no_comments)/エラー(error)になった回も再収集する"
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: cron-jikkyo
@@ -28,3 +39,6 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # 手動実行時のみ入力値を反映（スケジュール実行は既定26h・再試行なし）
+          JIKKYO_LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '26' }}
+          JIKKYO_RETRY_FAILED: ${{ github.event.inputs.retry_failed || 'false' }}

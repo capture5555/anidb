@@ -16,6 +16,10 @@ const MIN_AGE_MINUTES = 45;
 // 実況収集の対象外チャンネル（jikkyo_id）。AT-X(jk333)は有料CSで実況が少なく
 // 代表チャンネル選定のノイズになるため除外（DB側でも 0009 で jikkyo_id を外している）。
 const EXCLUDED_JIKKYO_IDS = new Set<string>(["jk333"]);
+// JIKKYO_RETRY_FAILED=1 のとき、過去ログ未反映で空取得(no_comments)・エラー(error)になった回も
+// 再収集対象に戻す（バックフィル用）。collected / no_channel は引き続きスキップ。
+const RETRY_FAILED = /^(1|true|yes|on)$/i.test(process.env.JIKKYO_RETRY_FAILED ?? "");
+const RETRYABLE_STATUS = new Set(["error", "no_comments"]);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const chunk = <T,>(arr: T[], size: number): T[][] => {
@@ -122,15 +126,19 @@ export async function collectJikkyo(): Promise<CollectJikkyoResult> {
     if (!data || data.length < 1000) break;
   }
 
-  // 収集済み（no_channel 等も含む）を除外
+  // 収集済み（no_channel 等も含む）を除外。
+  // RETRY_FAILED 時は error / no_comments を done に入れない＝再収集対象に戻す。
   const done = new Set<string>();
   for (const ids of chunk((programs ?? []).map((p) => p.id), 200)) {
     const { data } = await db
       .from("analytics_collection_log")
-      .select("program_id")
+      .select("program_id, status")
       .eq("source", SOURCE)
       .in("program_id", ids);
-    for (const row of data ?? []) done.add(row.program_id);
+    for (const row of data ?? []) {
+      if (RETRY_FAILED && RETRYABLE_STATUS.has(row.status)) continue;
+      done.add(row.program_id);
+    }
   }
   const targets = (programs ?? []).filter((p) => !done.has(p.id));
 
