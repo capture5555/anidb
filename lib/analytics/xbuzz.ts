@@ -50,8 +50,8 @@ export interface EpisodeXBuzz {
 }
 
 export interface WorkXBuzz extends WorkXBuzzLatest {
-  /** 作品レベル行の推移（時系列昇順, 直近~30件）。 */
-  trend: { capturedAt: string; volume: number }[];
+  /** 作品レベル行の推移（時系列昇順, 直近~30件）。sentiment も日別評判の集計に使う。 */
+  trend: { capturedAt: string; volume: number; sentiment: string | null }[];
   /** 話数レベル行（新しい順）。 */
   episodes: EpisodeXBuzz[];
 }
@@ -180,11 +180,12 @@ export async function getWorkXBuzz(workId: string): Promise<WorkXBuzz | null> {
       capturedAt: String(latestRow.captured_at),
     };
 
-    // 推移は時系列昇順（古い→新しい）。
+    // 推移は時系列昇順（古い→新しい）。sentiment も保持して日別の評判集計に使う。
     const trend = [...workRows]
       .map((r) => ({
         capturedAt: String(r.captured_at),
         volume: Number(r.volume_score) || 0,
+        sentiment: (r.sentiment as string | null) ?? null,
       }))
       .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
 
