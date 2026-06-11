@@ -9,6 +9,10 @@ interface SubRow {
   mode: string;
   status: string;
   works?: { title: string };
+  /** この購読固有の放送局選択（pre-migration では undefined/null）。 */
+  channels?: string[] | null;
+  /** この作品が放送される放送局の選択肢（GET API が付与・おすすめ順）。 */
+  channelOptions?: string[];
 }
 
 export default function MyPage() {
@@ -21,6 +25,8 @@ export default function MyPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [regenConfirm, setRegenConfirm] = useState(false);
+  const [editingChannels, setEditingChannels] = useState<string | null>(null); // 放送局を編集中の購読ID
+  const [savingChannels, setSavingChannels] = useState(false);
 
   const load = async () => {
     try {
@@ -96,6 +102,29 @@ export default function MyPage() {
       setTimeout(() => setToast(null), 5000);
     } finally {
       setBusy(false);
+    }
+  };
+
+  // 放送局選択を保存する（PATCH /api/subscriptions/[id]）。
+  const saveChannels = async (sub: SubRow, next: string[]) => {
+    setSavingChannels(true);
+    // 楽観更新（編集中の表示を即反映）
+    setSubs((prev) => prev.map((s) => (s.id === sub.id ? { ...s, channels: next } : s)));
+    try {
+      const res = await fetch(`/api/subscriptions/${sub.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: next }),
+      });
+      if (!res.ok) throw new Error();
+      setToast("放送局の設定を保存しました。カレンダーには次回取得時に反映されます。");
+      setTimeout(() => setToast(null), 5000);
+    } catch {
+      setToast("放送局の保存に失敗しました。もう一度お試しください。");
+      setTimeout(() => setToast(null), 5000);
+      await load(); // サーバ状態に戻す
+    } finally {
+      setSavingChannels(false);
     }
   };
 
@@ -230,24 +259,93 @@ export default function MyPage() {
 
         {state === "ready" && subs.length > 0 && (
           <ul className="divide-y divide-line border-y border-line">
-            {subs.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-4 py-4">
-                <div className="min-w-0">
-                  <Link href={`/works/${s.work_id}`} className="display text-lg hover:text-accent transition">
-                    {s.works?.title ?? "(作品)"}
-                  </Link>
-                  <p className="text-xs text-muted mt-0.5">
-                    {s.mode === "per_episode" ? "各話ごと" : "作品単位"}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setTarget(s)}
-                  className="shrink-0 text-sm text-muted hover:text-accent border border-line-strong px-3 py-1.5 rounded-lg transition"
-                >
-                  登録解除
-                </button>
-              </li>
-            ))}
+            {subs.map((s) => {
+              const options = s.channelOptions ?? [];
+              const selected = s.channels ?? null;
+              const editing = editingChannels === s.id;
+              const canEdit = options.length > 1; // 1局以下なら選ぶ余地が無い
+              return (
+                <li key={s.id} className="py-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/works/${s.work_id}`}
+                        className="display text-lg hover:text-accent transition"
+                      >
+                        {s.works?.title ?? "(作品)"}
+                      </Link>
+                      <p className="text-xs text-muted mt-0.5">
+                        {s.mode === "per_episode" ? "各話ごと" : "作品単位"}
+                        {options.length > 0 && (
+                          <>
+                            <span className="mx-1.5">·</span>
+                            <span>
+                              放送局:{" "}
+                              {selected && selected.length > 0 ? selected.join("、") : "すべて"}
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-2">
+                      {canEdit && (
+                        <button
+                          onClick={() => setEditingChannels(editing ? null : s.id)}
+                          className="text-sm text-muted hover:text-accent border border-line-strong px-3 py-1.5 rounded-lg transition"
+                        >
+                          {editing ? "閉じる" : "放送局"}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setTarget(s)}
+                        className="text-sm text-muted hover:text-accent border border-line-strong px-3 py-1.5 rounded-lg transition"
+                      >
+                        登録解除
+                      </button>
+                    </div>
+                  </div>
+
+                  {canEdit && editing && (
+                    <div className="mt-3 rounded-lg border border-line bg-paper p-3">
+                      <p className="kicker mb-2">カレンダーに入れる放送局</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {options.map((name) => {
+                          // 未設定(null/空)は「すべて」とみなし、全局を選択中として描画する。
+                          const active =
+                            selected && selected.length > 0 ? selected.includes(name) : true;
+                          return (
+                            <button
+                              key={name}
+                              type="button"
+                              disabled={savingChannels}
+                              aria-pressed={active}
+                              onClick={() => {
+                                const base =
+                                  selected && selected.length > 0 ? selected : options;
+                                const next = active
+                                  ? base.filter((c) => c !== name)
+                                  : [...base, name];
+                                void saveChannels(s, next);
+                              }}
+                              className={`px-2.5 py-1 rounded-full border text-xs font-medium transition disabled:opacity-50 ${
+                                active
+                                  ? "border-accent bg-accent/10 text-ink"
+                                  : "border-line text-muted hover:border-line-strong"
+                              }`}
+                            >
+                              {name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[0.68rem] text-muted mt-2 leading-relaxed">
+                        チェックした局の放送だけをカレンダーに入れます。すべて外すと全局が対象になります。
+                      </p>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
 
