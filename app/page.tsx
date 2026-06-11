@@ -85,15 +85,17 @@ export default async function HomePage({
                       href={item.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs font-bold text-ink hover:text-primary transition leading-snug"
+                      className="block text-xs font-bold text-ink hover:text-primary transition leading-snug line-clamp-2"
                     >
                       {item.title}
                     </a>
                   ) : (
-                    <p className="text-xs font-bold text-ink leading-snug">{item.title}</p>
+                    <p className="text-xs font-bold text-ink leading-snug line-clamp-2">
+                      {item.title}
+                    </p>
                   )}
-                  {item.summary !== item.title && (
-                    <p className="text-[0.72rem] text-muted leading-snug mt-0.5">
+                  {item.summary && item.summary !== item.title && (
+                    <p className="text-[0.72rem] text-muted leading-snug mt-0.5 line-clamp-3">
                       {item.summary}
                     </p>
                   )}
