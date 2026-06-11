@@ -32,6 +32,7 @@ import {
   type ReactionRatioWork,
 } from "@/lib/analytics/viewing";
 import { getFastStart, type FastStartRow } from "@/lib/analytics/fastStart";
+import { getRisers, type RiserRow } from "@/lib/analytics/risers";
 import {
   getCoolScorecard,
   QUADRANT_LABELS,
@@ -94,6 +95,7 @@ import {
   globalGapComment,
   fastStartComment,
   seasonHeatmapComment,
+  risersComment,
 } from "@/lib/analytics/sectionComments";
 import {
   getOverallRanking,
@@ -359,7 +361,7 @@ function OverallRankingCard({ rows }: { rows: OverallRankingRow[] }) {
 /* ================================================================ 視聴分析 */
 
 async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
-  const [retention, jikkyoRetention, hot, peaks, ratios, timeslots, overallRanking, fastStart] = await Promise.all([
+  const [retention, jikkyoRetention, hot, peaks, ratios, timeslots, overallRanking, fastStart, risers] = await Promise.all([
     basis === "annict"
       ? getRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] }))
       : getJikkyoRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] })),
@@ -373,6 +375,7 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
     getTimeslotHeatmap().catch((): TimeslotHeatmap => ({ cells: [], maxAvg: 0 })),
     getOverallRanking().catch((): OverallRankingRow[] => []),
     getFastStart(30).catch((): FastStartRow[] => []),
+    getRisers(10).catch((): RiserRow[] => []),
   ]);
   // シーズン俯瞰ヒートマップ用: 常に実況コメントデータを使う
   const heatmapSeries = (jikkyoRetention ?? retention).series;
@@ -383,6 +386,9 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
       {overallRanking.length > 0 && (
         <OverallRankingCard rows={overallRanking} />
       )}
+
+      {/* 急上昇アラート（直近の伸び） */}
+      <RisersAlertCard rows={risers} />
 
       {/* 残留率 */}
       <section className="card p-5 sm:p-6">
@@ -768,6 +774,81 @@ function RetentionMiniCard({
         </span>
       </div>
     </Link>
+  );
+}
+
+/* ================================================================ 急上昇アラート */
+
+/**
+ * 急上昇アラート（直近の伸び）カード（サーバーコンポーネント）。
+ * 広報が朝にチェックする用途: 最新話の実況コメント数が前話までの平均より大きく伸びた作品を表示。
+ */
+function RisersAlertCard({ rows }: { rows: RiserRow[] }) {
+  const comment = risersComment(rows);
+  const maxDelta = Math.max(1, ...rows.map((r) => r.deltaPct));
+
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-lg mb-1">急上昇アラート（直近の伸び）</h2>
+      <p className="text-xs text-muted mb-4">
+        実況コメント数が直近話で前話までの平均を大きく上回った作品（参考値）
+      </p>
+      <SectionNote text={comment} />
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted">直近で大きく伸びた作品はありません。</p>
+      ) : (
+        <ol className="divide-y divide-line">
+          {rows.map((row, i) => (
+            <li key={row.workId} className="flex items-start gap-3 py-2.5">
+              <span
+                className={`w-6 text-center font-black tabular-nums shrink-0 mt-1 ${
+                  i < 3 ? "text-accent" : "text-muted"
+                }`}
+              >
+                {i + 1}
+              </span>
+              <Link href={`/analytics/works/${row.workId}`} className="shrink-0">
+                <WorkCover
+                  id={row.workId}
+                  title={row.title}
+                  url={row.posterUrl}
+                  className="w-9 h-12 rounded-md"
+                />
+              </Link>
+              <div className="min-w-0 flex-1">
+                <Link
+                  href={`/analytics/works/${row.workId}`}
+                  className="block text-sm font-bold text-ink hover:text-primary transition truncate"
+                >
+                  {row.title}
+                  {row.latestLabel && (
+                    <span className="font-normal text-ink-soft ml-1.5">{row.latestLabel}</span>
+                  )}
+                </Link>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <span className="text-xs text-muted tabular-nums">
+                    {row.latestComments.toLocaleString()}コメ
+                  </span>
+                  {/* 伸び率バー */}
+                  <div className="flex-1 h-1.5 rounded-full bg-line overflow-hidden max-w-[120px]">
+                    <div
+                      className="h-full rounded-full bg-rose-500"
+                      style={{ width: `${Math.min(100, (row.deltaPct / maxDelta) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-black tabular-nums text-rose-600 shrink-0">
+                    前話まで平均比 +{Math.round(row.deltaPct)}%
+                  </span>
+                </div>
+                <p className="text-[0.66rem] text-muted mt-0.5">
+                  前話まで平均 {row.priorAvg.toLocaleString()}コメ
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
