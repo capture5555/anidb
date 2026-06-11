@@ -18,6 +18,8 @@ import { EpisodeTripleChart } from "@/components/charts/EpisodeTripleChart";
 import { getOverallRanking } from "@/lib/analytics/overallRanking";
 import { getFastStart } from "@/lib/analytics/fastStart";
 import { WorkKpiStrip } from "@/components/charts/WorkKpiStrip";
+import { SectionNote } from "@/components/charts/WorkAnalysisSections";
+import { scoreReason } from "@/lib/analytics/sectionComments";
 
 export async function generateMetadata({
   params,
@@ -118,6 +120,10 @@ export default async function WorkAnalyticsPage({
           fastStartRank={fastStartRank}
           fastStartTotal={fastStartTotal}
         />
+        {/* スコアの根拠説明（ルールベース）— データが薄い作品では非表示 */}
+        <div className="mt-2">
+          <SectionNote text={scoreReason(overallRow)} />
+        </div>
       </div>
 
       <div className="space-y-5 py-5">
