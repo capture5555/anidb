@@ -829,6 +829,14 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
         ※ データソース: Annict（記録数）・ニコニコ実況 過去ログAPI（コメント）。
         どちらも各サービスの利用者を母数とした参考値であり、テレビの視聴率・視聴者数を示すものではありません。
       </p>
+      <div className="text-right">
+        <Link
+          href="/analytics/guide"
+          className="text-xs font-bold text-primary hover:underline underline-offset-2"
+        >
+          指標ガイド・データソースについて →
+        </Link>
+      </div>
     </div>
   );
 }
