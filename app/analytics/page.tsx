@@ -75,6 +75,7 @@ import {
 } from "@/lib/analytics/timeslots";
 import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
+import { seasonOf, formatSeason } from "@/lib/season";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
 import { SectionNote } from "@/components/charts/WorkAnalysisSections";
 import { SeasonOverviewHeatmap } from "@/components/charts/SeasonOverviewHeatmap";
@@ -662,9 +663,20 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
   ]);
   // シーズン俯瞰ヒートマップ用: 常に実況コメントデータを使う
   const heatmapSeries = (jikkyoRetention ?? retention).series;
+  // 表示中のシーズン（分析がどのクールのものか見分けられるようにラベル化）
+  const { year: curYear, season: curSeason } = seasonOf(new Date());
+  const seasonLabel = formatSeason(curYear, curSeason);
 
   return (
     <div className="space-y-5">
+      {/* 表示中シーズンの明示（分析がどのクールのものか見分けがつくように） */}
+      <div className="flex items-center gap-2 flex-wrap -mb-1">
+        <span className="text-[0.7rem] font-black text-white bg-accent rounded-full px-2.5 py-0.5">
+          {seasonLabel}クール
+        </span>
+        <span className="text-xs text-muted">の視聴分析を表示中</span>
+      </div>
+
       {/* 総合ランキング */}
       {overallRanking.length > 0 && (
         <OverallRankingCard rows={overallRanking} />
@@ -676,7 +688,10 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
       {/* 残留率 */}
       <section className="card p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
-          <h2 className="section-title text-lg">話数別の視聴継続率</h2>
+          <h2 className="section-title text-lg">
+            話数別の視聴継続率
+            <span className="ml-2 text-xs font-normal text-muted">（{seasonLabel}・全{retention.series.length}作品）</span>
+          </h2>
           <div className="flex gap-1.5">
             <Link
               href="/analytics"
@@ -714,6 +729,11 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
         </p>
         <SectionNote text={retentionSeriesComment(retention.series)} />
         <RetentionChart series={retention.series.slice(0, 12)} />
+        {retention.series.length > 12 && (
+          <p className="text-[0.68rem] text-muted mt-2">
+            折れ線は人気上位12作品を表示。{seasonLabel}の全{retention.series.length}作品は下の「クール残留カーブ一覧」で確認できます。
+          </p>
+        )}
       </section>
 
       {/* クール残留カーブ一覧（small multiples） */}
@@ -722,7 +742,7 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
           <h2 className="section-title text-lg mb-1">
             クール残留カーブ一覧
             <span className="ml-2 text-xs font-normal text-muted tabular-nums">
-              {retention.series.length}作品
+              {seasonLabel}・{retention.series.length}作品
             </span>
           </h2>
           <p className="text-xs text-muted mb-4">
