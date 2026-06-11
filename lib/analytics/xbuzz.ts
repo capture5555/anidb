@@ -36,8 +36,10 @@ export interface WorkXBuzzLatest {
   capturedAt: string;
 }
 
-/** 話数レベルのバズ1件。 */
+/** 話数レベルのバズ1件（話数ごとに最新1件へ集約済み）。 */
 export interface EpisodeXBuzz {
+  episodeId: string | null;
+  episodeNumber: number | null;
   episodeLabel: string;
   volume: number;
   sentiment: string | null;
@@ -73,6 +75,50 @@ export interface XBuzzVsJikkyo {
 function toStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v.map((x) => String(x)).filter((s) => s.length > 0).slice(0, 30);
+}
+
+/**
+ * Grok(x_search)の生 answer markdown を、画面表示用の素のテキストに整える純関数。
+ *
+ * collector は res.answer をそのまま summary に保存するため、回答末尾の指示エコー
+ * （BUZZ_JSON: {...} / POSTS_JSON: [...]）や markdown 装飾（**強調**・脚注 [[1]](url)・
+ * 見出し #）がそのまま混入する。これらを取り除いて「作品の声」を読みやすくする。
+ *
+ * 既存の蓄積行にも効くよう、書き込み時ではなく読み取り時にここで正規化する。
+ * いかなる入力でも例外を投げず、null/空なら null を返す。
+ */
+export function cleanXSummary(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let s = String(raw);
+
+  // 1) 末尾の指示エコー（BUZZ_JSON: / POSTS_JSON:）以降を丸ごと切り落とす。
+  //    行頭の markdown 装飾（**, -, #, 空白）が付いていても拾えるようにする。
+  const cut = s.search(/(^|\n)\s*(?:[*_#>\-\s]*)?(?:BUZZ_JSON|POSTS_JSON)\s*[:：]/i);
+  if (cut >= 0) s = s.slice(0, cut);
+
+  // 2) 脚注リンク [[1]](url) / [1](url) を除去（番号付き引用マーカー）。
+  s = s.replace(/\[\[(\d+)\]\]\([^)]*\)/g, "");
+  s = s.replace(/\[(\d+)\]\([^)]*\)/g, "");
+  // 3) 通常の markdown リンク [表示文字](url) は表示文字だけ残す。
+  s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  // 4) 裸の参照マーカー [1] / [1, 2] を除去。
+  s = s.replace(/\[\d+(?:\s*,\s*\d+)*\]/g, "");
+  // 5) 強調・コード装飾 (**bold** / __bold__ / *italic* / `code`) のマーカーを外す。
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/__([^_]+)__/g, "$1");
+  s = s.replace(/(^|[^*])\*(?!\s)([^*\n]+?)\*(?!\*)/g, "$1$2");
+  s = s.replace(/`([^`]+)`/g, "$1");
+  // 6) 行頭の見出し/引用/箇条書きマーカーを外す。
+  s = s.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  s = s.replace(/^\s{0,3}>\s?/gm, "");
+  s = s.replace(/^\s{0,3}[-*]\s+/gm, "・");
+  // 7) 脚注・装飾を抜いた跡に残る連続スペースを1つに畳み、和文句読点の前の空白を除く。
+  s = s.replace(/[ \t]{2,}/g, " ");
+  s = s.replace(/ +([。、！？」』）)])/g, "$1");
+  // 8) 3連以上の改行は2連に圧縮し、各行末の空白を落とし、全体を trim。
+  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  return s.length > 0 ? s : null;
 }
 
 /** jsonb/任意値を {url}[] に正規化（citations 用）。 */
@@ -129,7 +175,7 @@ export async function getWorkXBuzz(workId: string): Promise<WorkXBuzz | null> {
       volume: Number(latestRow.volume_score) || 0,
       sentiment: (latestRow.sentiment as string | null) ?? null,
       topics: toStringArray(latestRow.topics),
-      summary: (latestRow.summary as string | null) ?? null,
+      summary: cleanXSummary(latestRow.summary as string | null),
       citations: toCitations(latestRow.citations),
       capturedAt: String(latestRow.captured_at),
     };
@@ -155,20 +201,35 @@ export async function getWorkXBuzz(workId: string): Promise<WorkXBuzz | null> {
         .order("captured_at", { ascending: false })
         .limit(60);
       if (!epRes.error) {
-        episodes = (epRes.data ?? []).map((r) => {
+        // captured_at 降順で読んでいるので、話数(episode_id)ごとに最初に出た行＝最新を採用する。
+        const byEpisode = new Map<string, EpisodeXBuzz>();
+        for (const r of epRes.data ?? []) {
+          const o = r as Record<string, unknown>;
           const ep = (r as { episodes?: { number?: number | null; number_text?: string | null } })
             .episodes;
+          const episodeId = (o.episode_id as string | null) ?? null;
+          const dedupeKey = episodeId ?? String(o.captured_at);
+          if (byEpisode.has(dedupeKey)) continue;
           const label =
             ep?.number_text ?? (ep?.number != null ? `第${ep.number}話` : "話数不明");
-          return {
+          byEpisode.set(dedupeKey, {
+            episodeId,
+            episodeNumber: ep?.number ?? null,
             episodeLabel: label,
-            volume: Number((r as Record<string, unknown>).volume_score) || 0,
-            sentiment: ((r as Record<string, unknown>).sentiment as string | null) ?? null,
-            topics: toStringArray((r as Record<string, unknown>).topics),
-            summary: ((r as Record<string, unknown>).summary as string | null) ?? null,
-            citations: toCitations((r as Record<string, unknown>).citations),
-            capturedAt: String((r as Record<string, unknown>).captured_at),
-          };
+            volume: Number(o.volume_score) || 0,
+            sentiment: (o.sentiment as string | null) ?? null,
+            topics: toStringArray(o.topics),
+            summary: cleanXSummary(o.summary as string | null),
+            citations: toCitations(o.citations),
+            capturedAt: String(o.captured_at),
+          });
+        }
+        // 話数の新しい順（number 降順、未設定は末尾）に並べる。
+        episodes = [...byEpisode.values()].sort((a, b) => {
+          if (a.episodeNumber == null && b.episodeNumber == null) return 0;
+          if (a.episodeNumber == null) return 1;
+          if (b.episodeNumber == null) return -1;
+          return b.episodeNumber - a.episodeNumber;
         });
       }
     }
