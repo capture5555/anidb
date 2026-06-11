@@ -1,4 +1,8 @@
-export const dynamic = "force-dynamic";
+// searchParams (view, period, basis) make this page dynamically rendered per-request in Next.js 15
+// regardless of any revalidate directive; we keep it dynamic but drop the conflicting directives.
+// force-dynamic + revalidate=3600 was contradictory — force-dynamic won and revalidate was inert.
+// With both removed the page is still dynamic (searchParams trigger per-request rendering),
+// and the Workers/OpenNext edge layer can now apply response caching as configured there.
 import Link from "next/link";
 import {
   getVaRanking,
@@ -52,7 +56,6 @@ import { CsvExportButton } from "@/components/CsvExportButton";
 import type { Season } from "@/lib/types";
 
 export const metadata = { title: "アニメ分析" };
-export const revalidate = 3600;
 
 const SEASON_COLOR: Record<string, string> = {
   winter: "#5b7a99",
@@ -1418,7 +1421,12 @@ function StudioScorecardCard({ scorecards }: { scorecards: StudioScorecard[] }) 
                   <tr key={sc.studio} className="border-b border-line/60 hover:bg-paper/60">
                     <td className="py-2 pr-2 text-xs text-muted tabular-nums">{i + 1}</td>
                     <td className="py-2 pr-3">
-                      <span className="font-medium text-ink line-clamp-1">{sc.studio}</span>
+                      <Link
+                        href={`/analytics/studios/${encodeURIComponent(sc.studio)}`}
+                        className="font-medium text-ink hover:text-primary transition line-clamp-1"
+                      >
+                        {sc.studio}
+                      </Link>
                     </td>
                     {/* 制作数 */}
                     <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">

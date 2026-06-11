@@ -272,6 +272,255 @@ export async function getStudioScorecardsUncached(opts?: {
   return scorecards.slice(0, limit);
 }
 
+/* ================================================================
+   スタジオ詳細（単一スタジオのドリルダウン）
+   ================================================================ */
+
+/** 詳細ページ用のワーク1件 */
+export interface StudioWork {
+  workId: string;
+  title: string;
+  posterUrl: string | null;
+  seasonYear: number | null;
+  seasonName: string | null;
+  score: number | null; // anilist 優先・なければ mal*10・無ければ null
+  popularity: number | null;
+  status: string | null;
+}
+
+export interface StudioDetail {
+  studio: string; // DB上の canonical な person_name
+  worksCount: number;
+  scoredWorks: number;
+  avgScore: number;
+  consistency: number | null;
+  battingAverage: number; // 0..1
+  avgPopularity: number;
+  yearTrend: YearAvgScore[]; // 直近4年分、昇順
+  works: StudioWork[]; // 新しいクール順
+}
+
+/** 詳細ページで使う works の拡張行（title / poster / status を含む） */
+interface DetailWorkRow extends WorkRow {
+  title: string;
+  poster_url: string | null;
+  key_visual_url: string | null;
+  status: string | null;
+}
+
+interface DetailStaffWorkRow {
+  person_name: string;
+  work_id: string;
+  works: DetailWorkRow;
+}
+
+/** クール（season_year, season_name）の新しさで比較するためのソートキー */
+const SEASON_RANK: Record<string, number> = { winter: 0, spring: 1, summer: 2, autumn: 3 };
+
+/**
+ * 単一スタジオの詳細。スタジオの同定は v_studio_stats と同じ
+ *   work_staff.role = 'アニメーション制作'
+ * に加え、person_name を name で大文字小文字無視マッチ（exact ILIKE）し、
+ * ヒットしなければ %name% の部分一致でフォールバックする（"TriF" → "TriFスタジオ"）。
+ *
+ * 見つからなければ null。DB例外も握りつぶして null（防御的）。
+ */
+async function getStudioDetailUncached(name: string): Promise<StudioDetail | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+
+  const db = getAdminClient();
+  const select =
+    "person_name, work_id, works!inner(id, title, poster_url, key_visual_url, season_year, season_name, popularity, anilist_score, mal_score, status)";
+
+  // ILIKE 用にワイルドカードをエスケープ
+  const esc = trimmed.replace(/[%_\\]/g, (c) => `\\${c}`);
+
+  async function fetchBy(pattern: string): Promise<DetailStaffWorkRow[]> {
+    const out: DetailStaffWorkRow[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db
+        .from("work_staff")
+        .select(select)
+        .eq("role", "アニメーション制作")
+        .ilike("person_name", pattern)
+        .range(from, from + 999);
+      if (error) throw error;
+      out.push(...((data ?? []) as unknown as DetailStaffWorkRow[]));
+      if (!data || data.length < 1000) break;
+    }
+    return out;
+  }
+
+  // 1) 完全一致（大文字小文字無視）→ 2) 部分一致フォールバック
+  let rows = await fetchBy(esc);
+  if (rows.length === 0) rows = await fetchBy(`%${esc}%`);
+  if (rows.length === 0) return null;
+
+  // canonical 名 — 最も多くの作品を持つ person_name を採用（部分一致で複数名が
+  // 混ざる可能性に備える）
+  const nameCounts = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.person_name) continue;
+    nameCounts.set(r.person_name, (nameCounts.get(r.person_name) ?? 0) + 1);
+  }
+  if (nameCounts.size === 0) return null;
+  const studio = [...nameCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+
+  // 採用した canonical 名の行だけを使う（work_id で重複排除）
+  const worksById = new Map<string, DetailWorkRow>();
+  for (const r of rows) {
+    if (r.person_name !== studio) continue;
+    if (!worksById.has(r.work_id)) worksById.set(r.work_id, r.works);
+  }
+  const allWorks = [...worksById.values()];
+  const worksCount = allWorks.length;
+  if (worksCount === 0) return null;
+
+  // スコア付き作品
+  const scoredWorkPairs: { work: DetailWorkRow; score: number }[] = [];
+  for (const w of allWorks) {
+    const score = resolveScore(w);
+    if (score != null) scoredWorkPairs.push({ work: w, score });
+  }
+  const scoredWorks = scoredWorkPairs.length;
+  const scores = scoredWorkPairs.map((p) => p.score);
+
+  const avgScore = scoredWorks > 0 ? Math.round(mean(scores) * 10) / 10 : 0;
+
+  let consistency: number | null = null;
+  if (scoredWorks >= 2) {
+    const cv = coefficientOfVariation(scores);
+    consistency = isFinite(cv) ? consistencyFromCv(cv) : null;
+  }
+
+  // 打率 — そのスタジオのスコア付き作品が出たクールの全作品中央値と比較。
+  // 母数のクール中央値は work_id で重複排除した全制作クレジット作品から算出する
+  // （getStudioScorecardsUncached と同じ考え方を、関係するクールに限定して再計算）。
+  const relevantSeasonKeys = new Set<string>();
+  for (const { work } of scoredWorkPairs) {
+    if (work.season_year && work.season_name) {
+      relevantSeasonKeys.add(`${work.season_year}|${work.season_name}`);
+    }
+  }
+  const seasonMedianMap = new Map<string, number>();
+  if (relevantSeasonKeys.size > 0) {
+    try {
+      const scoresBySeason = new Map<string, number[]>();
+      const seen = new Set<string>();
+      for (const key of relevantSeasonKeys) {
+        const [yearStr, seasonName] = key.split("|");
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await db
+            .from("work_staff")
+            .select(
+              "work_id, works!inner(id, season_year, season_name, anilist_score, mal_score)",
+            )
+            .eq("role", "アニメーション制作")
+            .eq("works.season_year", Number(yearStr))
+            .eq("works.season_name", seasonName)
+            .range(from, from + 999);
+          if (error) throw error;
+          const batch = (data ?? []) as unknown as { works: WorkRow }[];
+          for (const row of batch) {
+            const w = row.works;
+            if (seen.has(w.id)) continue;
+            seen.add(w.id);
+            const sc = resolveScore(w);
+            if (sc == null || !w.season_year || !w.season_name) continue;
+            const k = `${w.season_year}|${w.season_name}`;
+            if (!scoresBySeason.has(k)) scoresBySeason.set(k, []);
+            scoresBySeason.get(k)!.push(sc);
+          }
+          if (!data || data.length < 1000) break;
+        }
+      }
+      for (const [k, arr] of scoresBySeason) seasonMedianMap.set(k, median(arr));
+    } catch {
+      // クール中央値が取れなくても打率を 0 として続行（致命的でない）
+      seasonMedianMap.clear();
+    }
+  }
+
+  const studioScoredPairs: { score: number; seasonMedian: number }[] = [];
+  for (const { work, score } of scoredWorkPairs) {
+    if (!work.season_year || !work.season_name) continue;
+    const med = seasonMedianMap.get(`${work.season_year}|${work.season_name}`);
+    if (med == null) continue;
+    studioScoredPairs.push({ score, seasonMedian: med });
+  }
+  const ba = studioScoredPairs.length > 0 ? battingAverage(studioScoredPairs) : NaN;
+
+  // 平均人気度
+  const popSum = allWorks.reduce((s, w) => s + (w.popularity ?? 0), 0);
+  const avgPopularity = Math.round(popSum / worksCount);
+
+  // 年別トレンド（直近4年）
+  const scoresByYear = new Map<number, number[]>();
+  for (const { work, score } of scoredWorkPairs) {
+    if (!work.season_year) continue;
+    if (!scoresByYear.has(work.season_year)) scoresByYear.set(work.season_year, []);
+    scoresByYear.get(work.season_year)!.push(score);
+  }
+  const yearTrend: YearAvgScore[] = [...scoresByYear.keys()]
+    .sort((a, b) => a - b)
+    .slice(-4)
+    .map((year) => ({
+      year,
+      avgScore: Math.round(mean(scoresByYear.get(year)!) * 10) / 10,
+    }));
+
+  // 作品一覧（新しいクール順）
+  const works: StudioWork[] = allWorks
+    .map((w) => ({
+      workId: w.id,
+      title: w.title,
+      posterUrl: w.poster_url ?? w.key_visual_url ?? null,
+      seasonYear: w.season_year,
+      seasonName: w.season_name,
+      score: resolveScore(w),
+      popularity: w.popularity,
+      status: w.status,
+    }))
+    .sort((a, b) => {
+      const ay = a.seasonYear ?? -Infinity;
+      const by = b.seasonYear ?? -Infinity;
+      if (ay !== by) return by - ay;
+      const ar = a.seasonName ? SEASON_RANK[a.seasonName] ?? -1 : -1;
+      const br = b.seasonName ? SEASON_RANK[b.seasonName] ?? -1 : -1;
+      if (ar !== br) return br - ar;
+      return a.title.localeCompare(b.title, "ja");
+    });
+
+  return {
+    studio,
+    worksCount,
+    scoredWorks,
+    avgScore,
+    consistency,
+    battingAverage: isNaN(ba) ? 0 : ba,
+    avgPopularity,
+    yearTrend,
+    works,
+  };
+}
+
+/**
+ * 単一スタジオの詳細を返す（10分メモ化・防御的）。
+ * 例外時は null を返す。
+ */
+export const getStudioDetail = memoizeTTL(
+  async (name: string): Promise<StudioDetail | null> => {
+    try {
+      return await getStudioDetailUncached(name);
+    } catch {
+      return null;
+    }
+  },
+  (name) => `studio_detail:${name}`,
+  600000,
+);
+
 /** スタジオ・スコアカードの LIVE 計算（opts 単位で30分メモ化）。 */
 const getStudioScorecardsLive = memoizeTTL(
   getStudioScorecardsUncached,
