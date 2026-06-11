@@ -462,6 +462,12 @@ export default async function AnalyticsPage({
         <span className="text-[0.7rem] font-black text-white bg-accent rounded-full px-2.5 py-0.5 self-center">
           {formatSeason(seasonOf(new Date()).year, seasonOf(new Date()).season)}クール
         </span>
+        <Link
+          href="/analytics/report"
+          className="ml-auto text-xs font-bold text-primary hover:underline underline-offset-2 whitespace-nowrap self-center"
+        >
+          今期サマリー →
+        </Link>
       </div>
 
       {seasonComment && (
