@@ -40,6 +40,7 @@ try {
 import { getAdminClient } from "../lib/supabase/admin.ts";
 import { isXaiConfigured, searchAnimeBuzz } from "../lib/adapters/xai.ts";
 import { buzzFromAnswer, hermesXSearch, isHermesConfigured } from "../lib/adapters/hermesX.ts";
+import { parsePostsFromAnswer } from "../lib/adapters/xPosts.ts";
 import { seasonOf } from "../lib/season.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -59,6 +60,67 @@ function isMissingColumn(error: unknown): boolean {
   const e = error as { code?: string; message?: string } | null;
   if (!e) return false;
   return e.code === "42703" || /column/i.test(e.message ?? "");
+}
+
+/**
+ * Mode B プロンプト末尾に付与する「実ポスト出力」指示。
+ * 回答末尾に POSTS_JSON ブロックで実際の status フル URL と本文抜粋を出させ、
+ * parsePostsFromAnswer で抽出 → Snowflake で実時刻を復元 → analytics_x_posts に蓄積する。
+ */
+const POSTS_PROMPT_SUFFIX =
+  `また回答の最後に、見つかった実際のXポストを最大20件、必ず ` +
+  `POSTS_JSON: [{"url":"https://x.com/<user>/status/<id>","text":"<本文の短い抜粋>"}] ` +
+  `の形式(URLは必ずstatusのフルURL)で出力してください。`;
+
+/** 投稿テーブル未作成(42P01)の harvest スキップ警告を1ラン1回に抑えるフラグ。 */
+let postsTableMissingLogged = false;
+
+/**
+ * analytics_x_posts への防御的バルク upsert。
+ *   - parsePostsFromAnswer の結果を行へ変換し onConflict "work_id,status_id" で ignoreDuplicates。
+ *   - テーブル未作成(42P01)なら1ラン1回だけログして 0 を返す（buzz 行は別途 insert 済み）。
+ *   - その他失敗も throw せず 0 を返す（cron を落とさない）。
+ * 戻り値は試行件数（取り込もうとしたポスト数）。
+ */
+async function harvestPosts(
+  db: ReturnType<typeof getAdminClient>,
+  workId: string,
+  episodeId: string | null,
+  answer: string,
+  citations: { url: string }[],
+): Promise<number> {
+  const posts = parsePostsFromAnswer(answer, citations);
+  if (posts.length === 0) return 0;
+  const rows = posts.map((p) => ({
+    work_id: workId,
+    episode_id: episodeId,
+    status_id: p.statusId,
+    url: p.url,
+    text: p.text,
+    posted_at: p.postedAt,
+  }));
+  try {
+    const { error } = await db
+      .from("analytics_x_posts")
+      .upsert(rows, { onConflict: "work_id,status_id", ignoreDuplicates: true });
+    if (error) {
+      if (isMissingTable(error)) {
+        if (!postsTableMissingLogged) {
+          postsTableMissingLogged = true;
+          console.warn(
+            "[collect-x-buzz] analytics_x_posts 未作成のため harvest をスキップ（0014_x_posts.sql 適用前）",
+          );
+        }
+        return 0;
+      }
+      console.error("[collect-x-buzz] posts upsert 失敗:", error.message ?? error);
+      return 0;
+    }
+    return rows.length;
+  } catch (e) {
+    console.error("[collect-x-buzz] posts harvest 例外:", e);
+    return 0;
+  }
 }
 
 const WINDOW_HOURS = 24;
@@ -91,6 +153,10 @@ interface BuzzRow {
   summary: string | null;
   /** Mode B のみ: 重複排除・上限済みの引用 URL。Mode A は []。 */
   citations: { url: string }[];
+  /** Mode B のみ: harvest 用の生 answer（丸めなし）。Mode A は null。 */
+  rawAnswer?: string | null;
+  /** Mode B のみ: harvest 用の生 citations（丸めなし）。Mode A は undefined。 */
+  rawCitations?: { url: string }[];
 }
 
 /** Mode B: Hermes(x_search_tool) で作品のバズを導出する。失敗時は null。 */
@@ -99,7 +165,8 @@ async function collectHermes(title: string): Promise<BuzzRow | null> {
     `アニメ『${title}』に関する直近24時間のX上の反応を検索して要約してください。` +
     `最後に必ず1行で BUZZ_JSON: {"volume":0..5,"sentiment":"positive|mixed|negative",` +
     `"topics":["…"],"quotes":["…"]} を出力してください` +
-    `（volumeは投稿量の体感: 0=ほぼ無し,5=トレンド級）。`;
+    `（volumeは投稿量の体感: 0=ほぼ無し,5=トレンド級）。` +
+    POSTS_PROMPT_SUFFIX;
   const res = await hermesXSearch(query);
   if (!res) return null;
   const buzz = buzzFromAnswer(title, res.answer, res.citations.length);
@@ -107,6 +174,8 @@ async function collectHermes(title: string): Promise<BuzzRow | null> {
     ...buzz,
     summary: res.answer ? res.answer.trim().slice(0, SUMMARY_MAX) : null,
     citations: dedupCitations(res.citations),
+    rawAnswer: res.answer,
+    rawCitations: res.citations,
   };
 }
 
@@ -215,6 +284,7 @@ async function main() {
   let inserted = 0;
   let skipped = 0;
   let errors = 0;
+  let postsHarvested = 0;
 
   for (const w of targets) {
     try {
@@ -250,6 +320,17 @@ async function main() {
         inserted++;
         console.log(`[collect-x-buzz] ok: ${w.title} volume=${buzz.volume_score}`);
       }
+
+      // 生ポストの harvest（Mode B のみ raw が乗る。テーブル未作成なら穏当にスキップ）。
+      if (buzz.rawAnswer != null) {
+        postsHarvested += await harvestPosts(
+          db,
+          w.id,
+          null,
+          buzz.rawAnswer,
+          buzz.rawCitations ?? [],
+        );
+      }
     } catch (e) {
       errors++;
       console.error(`[collect-x-buzz] 例外: ${w.title}`, e);
@@ -267,7 +348,7 @@ async function main() {
   }
 
   console.log(
-    `[collect-x-buzz] done: mode=${mode} inserted=${inserted} skipped=${skipped} errors=${errors} targets=${targets.length}`,
+    `[collect-x-buzz] done: mode=${mode} inserted=${inserted} skipped=${skipped} errors=${errors} targets=${targets.length} posts harvested=${postsHarvested}`,
   );
   process.exit(0);
 }
@@ -360,6 +441,7 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
   let epInserted = 0;
   let epSkipped = 0;
   let epErrors = 0;
+  let epPostsHarvested = 0;
 
   for (const [episodeId, info] of candidates) {
     try {
@@ -367,7 +449,8 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
         `アニメ『${info.workTitle}』の『${info.epLabel}${info.subtitle}』（最新話）について` +
         `X上の視聴者の評価・反応を検索して要約してください。` +
         `最後に必ず1行 BUZZ_JSON: {"volume":0..5,"sentiment":"positive|mixed|negative",` +
-        `"topics":["…"],"quotes":["実際のポストの短い引用…"]} を出力。`;
+        `"topics":["…"],"quotes":["実際のポストの短い引用…"]} を出力。` +
+        POSTS_PROMPT_SUFFIX;
       const res = await hermesXSearch(query);
       if (!res) {
         epSkipped++;
@@ -401,6 +484,15 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
           `[collect-x-buzz] 話数別 ok: ${info.workTitle} ${info.epLabel} volume=${buzz.volume_score}`,
         );
       }
+
+      // 話数レベルの生ポスト harvest（episode_id 付き。テーブル未作成なら穏当にスキップ）。
+      epPostsHarvested += await harvestPosts(
+        db,
+        info.workId,
+        episodeId,
+        res.answer,
+        res.citations,
+      );
     } catch (e) {
       epErrors++;
       console.error(`[collect-x-buzz] 話数別 例外: ${info.workTitle} ${info.epLabel}`, e);
@@ -409,7 +501,7 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
   }
 
   console.log(
-    `[collect-x-buzz] 話数別 done: episodes inserted=${epInserted} skipped=${epSkipped} errors=${epErrors} candidates=${candidates.length}`,
+    `[collect-x-buzz] 話数別 done: episodes inserted=${epInserted} skipped=${epSkipped} errors=${epErrors} candidates=${candidates.length} posts harvested=${epPostsHarvested}`,
   );
 }
 

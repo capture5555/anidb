@@ -15,7 +15,7 @@ name: cron-x-buzz
 
 on:
   schedule:
-    - cron: "45 */6 * * *" # 6時間おき（クォータ節約。スケジュールは据え置き）
+    - cron: "45 */3 * * *" # 3時間おき（生ポスト harvest 蓄積のため頻度UP。~25クエリ/回・サブスク枠~30/2h以内）
   workflow_dispatch:
 
 concurrency:
@@ -61,4 +61,6 @@ jobs:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           XAI_REFRESH_TOKEN: ${{ secrets.XAI_REFRESH_TOKEN }}
           XAI_OAUTH_CLIENT_ID: ${{ secrets.XAI_OAUTH_CLIENT_ID }}
-          X_BUZZ_LIMIT: "12"
+          # ~15作品 + ~10話数 ≈ 25クエリ/回（3hごと。サブスク枠~30/2h以内に収まる）。
+          X_BUZZ_LIMIT: "15"
+          X_EPISODE_BUZZ_LIMIT: "10"

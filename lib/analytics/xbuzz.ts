@@ -179,6 +179,45 @@ export async function getWorkXBuzz(workId: string): Promise<WorkXBuzz | null> {
   }
 }
 
+/** getWorkXPosts が返す1ポスト。 */
+export interface WorkXPost {
+  statusId: string;
+  url: string;
+  text: string | null;
+  /** posted_at（ISO 文字列）。 */
+  postedAt: string;
+  episodeId: string | null;
+}
+
+/**
+ * 1作品の蓄積済み生 X ポストを新しい順(posted_at 降順)で返す。
+ * テーブル未作成(0014 未適用)・失敗・欠落はすべて [] に正規化（防御的）。
+ */
+export async function getWorkXPosts(workId: string, limit = 600): Promise<WorkXPost[]> {
+  try {
+    const db = getAdminClient();
+    const { data, error } = await db
+      .from("analytics_x_posts")
+      .select("status_id, url, text, posted_at, episode_id")
+      .eq("work_id", workId)
+      .order("posted_at", { ascending: false })
+      .limit(Math.max(1, Math.min(limit, 2000)));
+    if (error) return [];
+    return (data ?? []).map((r) => {
+      const o = r as Record<string, unknown>;
+      return {
+        statusId: String(o.status_id),
+        url: String(o.url),
+        text: (o.text as string | null) ?? null,
+        postedAt: String(o.posted_at),
+        episodeId: (o.episode_id as string | null) ?? null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** 今期の放送中TV作品（id, title, poster_url）を取得。失敗は []。 */
 async function currentSeasonAiringWorks(): Promise<
   { id: string; title: string; poster_url: string | null }[]
