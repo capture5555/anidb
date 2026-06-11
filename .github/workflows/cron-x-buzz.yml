@@ -1,14 +1,21 @@
-# 6時間おきに、X Premium+のOAuth(またはAPIキー)でアニメのXバズを収集する。未設定ならスキップ。
+# 6時間おきに、アニメのXバズを収集する。未設定ならスキップ。
+# 収集モード(優先順):
+#   Mode B (Hermes): secrets.HERMES_HOME_B64 があれば ~/.hermes を復元し、
+#     uvx --from hermes-agent の x_search_tool を呼ぶ(xAI公認 / X Premium OAuth クォータ)。
+#   Mode A (XAI):     Hermes 未設定時のフォールバック。XAI_API_KEY か OAuth で Grok を呼ぶ。
 # サブスクのクォータを節約するため実行頻度は控えめ(6h)。
 # 必要な GitHub Secrets:
 #   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
-#   XAI_API_KEY（有料APIキー。空でも可） もしくは XAI_REFRESH_TOKEN + XAI_OAUTH_CLIENT_ID
-#   ※ XAI_REFRESH_TOKEN はローカルで `npm run xai-login` を実行して取得する。
+#   [Mode B] HERMES_HOME_B64
+#     = ローカルで `uvx --from hermes-agent hermes auth add xai-oauth` 後、
+#       `tar czf - -C ~ .hermes | base64 -w0` の出力を Secret に登録。
+#   [Mode A] XAI_API_KEY（有料APIキー。空でも可） もしくは XAI_REFRESH_TOKEN + XAI_OAUTH_CLIENT_ID
+#     ※ XAI_REFRESH_TOKEN はローカルで `npm run xai-login` を実行して取得する。
 name: cron-x-buzz
 
 on:
   schedule:
-    - cron: "45 */6 * * *" # 6時間おき（クォータ節約）
+    - cron: "45 */6 * * *" # 6時間おき（クォータ節約。スケジュールは据え置き）
   workflow_dispatch:
 
 concurrency:
@@ -18,19 +25,40 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 12作品 × 約40秒 ≈ 8分 ＋ uvx の初回ウォームアップを見込んで余裕を持たせる。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      # Hermes モード(x_search_tool)を uvx で呼ぶために uv をインストール。
+      - uses: astral-sh/setup-uv@v5
       - run: npm ci
+
+      # secrets は if: で直接使えないため、まず env に移してからガードする。
+      # HERMES_HOME_B64 があれば ~/.hermes を復元し HERMES_X_ENABLED=1 を後続に伝播する。
+      - name: Restore Hermes credentials (Mode B)
+        env:
+          HERMES_HOME_B64: ${{ secrets.HERMES_HOME_B64 }}
+        if: env.HERMES_HOME_B64 != ''
+        run: |
+          echo "$HERMES_HOME_B64" | base64 -d | tar xz -C ~
+          echo "HERMES_X_ENABLED=1" >> "$GITHUB_ENV"
+
+      # 初回のパッケージ解決を済ませておく（タイムアウトに含めないため、収集の前に温める）。
+      - name: Warm up hermes env (Mode B)
+        if: env.HERMES_X_ENABLED == '1'
+        continue-on-error: true
+        run: uvx --from hermes-agent python -c "print('hermes env ready')"
+
       - run: npm run collect-x-buzz
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Mode A(フォールバック)用。Hermes 未設定時にのみ使われる。
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           XAI_REFRESH_TOKEN: ${{ secrets.XAI_REFRESH_TOKEN }}
           XAI_OAUTH_CLIENT_ID: ${{ secrets.XAI_OAUTH_CLIENT_ID }}
-          X_BUZZ_LIMIT: "15"
+          X_BUZZ_LIMIT: "12"
