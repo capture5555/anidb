@@ -33,13 +33,20 @@ import {
   type ScorecardWork,
   type Quadrant,
 } from "@/lib/analytics/scorecard";
+import {
+  getCoverageStats,
+  getRecentJobs,
+  getCollectionGaps,
+  type CollectionJob,
+  type CollectionGap,
+} from "@/lib/analytics/collectionHealth";
 import { seasonSummary, studioInsight, vaInsight, genreOpportunity } from "@/lib/analytics/insights";
 import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
 import { QuadrantScatter } from "@/components/charts/QuadrantScatter";
 import { SEASON_LABELS, SEASON_ORDER } from "@/lib/season";
-import { formatPopularity } from "@/lib/format";
+import { formatPopularity, formatAirShort } from "@/lib/format";
 import { WorkCover } from "@/components/WorkCover";
 import { CsvExportButton } from "@/components/CsvExportButton";
 import type { Season } from "@/lib/types";
@@ -82,7 +89,9 @@ export default async function AnalyticsPage({
         ? "scorecard"
         : sp.view === "people"
           ? "people"
-          : "viewing";
+          : sp.view === "collection"
+            ? "collection"
+            : "viewing";
   const basis = sp.basis === "annict" ? "annict" : "jikkyo";
 
   return (
@@ -99,6 +108,7 @@ export default async function AnalyticsPage({
             { key: "scorecard", href: "/analytics?view=scorecard", label: "クール診断" },
             { key: "people", href: "/analytics?view=people", label: "人材" },
             { key: "industry", href: "/analytics?view=industry", label: "業界データ" },
+            { key: "collection", href: "/analytics?view=collection", label: "収集状況" },
           ].map((t) => (
             <li key={t.key}>
               <Link
@@ -120,6 +130,8 @@ export default async function AnalyticsPage({
         <ScorecardSection />
       ) : view === "people" ? (
         <PeopleSection />
+      ) : view === "collection" ? (
+        <CollectionSection />
       ) : (
         <IndustrySection period={sp.period} />
       )}
@@ -866,6 +878,204 @@ function StaffBucketCard({ label, people }: { label: string; people: StaffScorec
         </div>
       )}
     </section>
+  );
+}
+
+/* ================================================================ 収集状況 */
+
+async function CollectionSection() {
+  const [coverage, jobs, gaps] = await Promise.all([
+    getCoverageStats().catch(() => ({
+      total: 0,
+      collected: 0,
+      noComments: 0,
+      error: 0,
+      pending: 0,
+      collectedPct: 0,
+    })),
+    getRecentJobs(12).catch(() => [] as CollectionJob[]),
+    getCollectionGaps(30).catch(() => [] as CollectionGap[]),
+  ]);
+
+  const segments = [
+    { key: "collected", label: "収集済み", value: coverage.collected, color: "#2ebd85" },
+    { key: "no_comments", label: "0件/未取得", value: coverage.noComments, color: "#f5a623" },
+    { key: "error", label: "エラー", value: coverage.error, color: "#e8482f" },
+    { key: "pending", label: "未収集", value: coverage.pending, color: "#c3c8d2" },
+  ];
+  const total = coverage.total;
+
+  return (
+    <div className="space-y-5">
+      {/* 収集カバレッジ */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">直近の収集カバレッジ（過去7日）</h2>
+        <p className="text-xs text-muted mb-4">
+          実況チャンネルのある本放送（放送終了が45分前〜7日前）のうち、ニコニコ実況コメントをどれだけ収集できているか。
+          母数は実況チャンネル（jikkyo_id）を持つ番組のみ。
+        </p>
+        {total === 0 ? (
+          <p className="text-sm text-muted">対象番組がまだありません。</p>
+        ) : (
+          <>
+            <div className="flex items-baseline gap-3 mb-3">
+              <span className="text-3xl font-black text-accent tabular-nums">{coverage.collectedPct}%</span>
+              <span className="text-xs text-muted tabular-nums">
+                収集済み {coverage.collected.toLocaleString()} / {total.toLocaleString()} 番組
+              </span>
+            </div>
+            {/* 内訳バー */}
+            <div className="flex h-4 w-full overflow-hidden rounded-full bg-paper">
+              {segments.map((s) =>
+                s.value > 0 ? (
+                  <div
+                    key={s.key}
+                    style={{ width: `${(s.value / total) * 100}%`, backgroundColor: s.color }}
+                    title={`${s.label}: ${s.value}`}
+                  />
+                ) : null,
+              )}
+            </div>
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {segments.map((s) => (
+                <div key={s.key} className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-[2px] shrink-0" style={{ backgroundColor: s.color }} />
+                  <span className="text-xs text-ink-soft">{s.label}</span>
+                  <span className="text-xs font-bold text-ink tabular-nums ml-auto">{s.value.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* 収集ジョブ履歴 */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">直近の収集ジョブ</h2>
+        <p className="text-xs text-muted mb-4">
+          毎時実行される収集処理（collect-jikkyo）の履歴。コンスタントに動いていれば取りこぼしは自動で埋まっていきます。
+        </p>
+        {jobs.length === 0 ? (
+          <p className="text-sm text-muted">ジョブ履歴がまだありません。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-sm border-collapse">
+              <thead>
+                <tr className="text-xs text-muted border-b border-line">
+                  <th className="text-left font-bold py-2 pr-3">実行時刻</th>
+                  <th className="text-center font-bold py-2 px-1 w-16">状態</th>
+                  <th className="text-center font-bold py-2 px-1 w-16">収集</th>
+                  <th className="text-center font-bold py-2 px-1 w-20">0件/未取得</th>
+                  <th className="text-center font-bold py-2 px-1 w-14">エラー</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j) => (
+                  <tr key={j.id} className="border-b border-line/60 hover:bg-paper/60">
+                    <td className="py-2 pr-3 text-xs text-ink-soft tabular-nums whitespace-nowrap">
+                      {j.finishedAt ? formatAirShort(j.finishedAt) : j.startedAt ? formatAirShort(j.startedAt) : "—"}
+                    </td>
+                    <td className="py-2 px-1 text-center">
+                      <span
+                        className={`inline-block text-[0.66rem] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
+                          j.status === "ok"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : j.status === "partial"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-paper text-muted border border-line"
+                        }`}
+                      >
+                        {j.status ?? "—"}
+                      </span>
+                    </td>
+                    <td className="py-2 px-1 text-center tabular-nums font-bold text-ink">
+                      {j.collected.toLocaleString()}
+                    </td>
+                    <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">
+                      {j.noComments.toLocaleString()}
+                    </td>
+                    <td
+                      className={`py-2 px-1 text-center tabular-nums text-xs font-bold ${
+                        j.errors > 0 ? "text-accent" : "text-muted"
+                      }`}
+                    >
+                      {j.errors.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* 取りこぼし一覧 */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">取りこぼし一覧（直近7日）</h2>
+        <p className="text-xs text-muted mb-1">
+          収集すべきだがまだコメントを取得できていない番組（エラー / 0件・未取得 / 未収集）。新しい順に最大30件。
+        </p>
+        <p className="text-[0.68rem] text-muted mb-4 leading-relaxed">
+          これらは放送終了から48時間以内なら毎時の収集で自動リトライされます（過去ログAPIへの反映待ちの可能性）。
+          「0件・未取得」は本当にコメントが無かった回も含まれるため、必ずしもエラーではありません。
+          急ぐ場合は cron-jikkyo ワークフローを lookback_hours / retry_failed 付きで手動実行すると即時バックフィルできます。
+        </p>
+        {gaps.length === 0 ? (
+          <p className="text-sm text-muted">取りこぼしはありません。すべて収集済みです。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px] text-sm border-collapse">
+              <thead>
+                <tr className="text-xs text-muted border-b border-line">
+                  <th className="text-left font-bold py-2 pr-3">作品 / 話数</th>
+                  <th className="text-left font-bold py-2 px-2 w-28">チャンネル</th>
+                  <th className="text-left font-bold py-2 px-2 w-36">放送開始</th>
+                  <th className="text-center font-bold py-2 pl-2 w-24">状態</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gaps.map((g) => (
+                  <tr key={g.programId} className="border-b border-line/60 hover:bg-paper/60">
+                    <td className="py-2 pr-3">
+                      <span className="font-medium text-ink line-clamp-1">
+                        {g.workTitle}
+                        {g.episodeLabel && <span className="font-normal text-ink-soft ml-1.5">{g.episodeLabel}</span>}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-xs text-ink-soft truncate">{g.channelName ?? "—"}</td>
+                    <td className="py-2 px-2 text-xs text-ink-soft tabular-nums whitespace-nowrap">
+                      {formatAirShort(g.startAt)}
+                    </td>
+                    <td className="py-2 pl-2 text-center">
+                      <GapStatusTag status={g.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <p className="text-xs text-muted leading-relaxed">
+        ※ 収集は個人運営の過去ログAPIへ配慮し、1番組ずつ間隔を空けて取得しています。
+        放送直後はAPIへの反映に時間がかかるため、45分のバッファを置いてから収集を開始します。
+      </p>
+    </div>
+  );
+}
+
+function GapStatusTag({ status }: { status: CollectionGap["status"] }) {
+  const map: Record<CollectionGap["status"], { label: string; cls: string }> = {
+    error: { label: "エラー", cls: "bg-rose-100 text-rose-700" },
+    no_comments: { label: "0件/未取得", cls: "bg-amber-100 text-amber-700" },
+    pending: { label: "未収集", cls: "bg-paper text-muted border border-line" },
+  };
+  const { label, cls } = map[status];
+  return (
+    <span className={`inline-block text-[0.66rem] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${cls}`}>
+      {label}
+    </span>
   );
 }
 

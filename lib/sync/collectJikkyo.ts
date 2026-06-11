@@ -7,12 +7,19 @@ import { analyzeProgram, type ProgramAnalysis } from "../analytics/commentAnalys
  * - 対象: end_at が「26時間前〜45分前」の本放送（過去ログAPIへの反映バッファとして45分待つ）
  * - 冪等: analytics_collection_log(program_id, source) が収集済みゲート。
  *   no_channel（実況チャンネルの無い局）も記録して再試行させない。
+ * - 自動リトライ: 過去ログAPIへの反映が遅れて空取得(no_comments)・エラー(error)になった回は、
+ *   放送終了から AUTO_RETRY_HOURS(=48h) 以内なら毎時の収集で再挑戦する（反映され次第コメントを拾う）。
+ *   48hを過ぎたら凍結（恒久的に no_comments/error として確定）。
+ *   collected / no_channel は常に done（再収集しない＝冪等性を保つ）。
+ *   JIKKYO_RETRY_FAILED=1 のときは経過時間に関係なく error / no_comments を再収集（手動バックフィル用）。
  */
 
 const SOURCE = "nicojk";
 // JIKKYO_LOOKBACK_HOURS で過去ログのさかのぼり時間を上書きできる（バックフィル用）
 const LOOKBACK_HOURS = Number(process.env.JIKKYO_LOOKBACK_HOURS) || 26;
 const MIN_AGE_MINUTES = 45;
+// 空取得/エラーの自動リトライ窓。放送終了からこの時間内なら毎時再挑戦し、過ぎたら凍結。
+const AUTO_RETRY_HOURS = Number(process.env.JIKKYO_AUTO_RETRY_HOURS) || 48;
 // 実況収集の対象外チャンネル（jikkyo_id）。AT-X(jk333)は有料CSで実況が少なく
 // 代表チャンネル選定のノイズになるため除外（DB側でも 0009 で jikkyo_id を外している）。
 const EXCLUDED_JIKKYO_IDS = new Set<string>(["jk333"]);
@@ -126,8 +133,19 @@ export async function collectJikkyo(): Promise<CollectJikkyoResult> {
     if (!data || data.length < 1000) break;
   }
 
-  // 収集済み（no_channel 等も含む）を除外。
-  // RETRY_FAILED 時は error / no_comments を done に入れない＝再収集対象に戻す。
+  // 番組ごとの end_at（自動リトライの経過時間判定に使う）
+  const endAtByProgram = new Map<string, number>();
+  for (const p of programs ?? []) {
+    const t = new Date(p.end_at ?? p.start_at).getTime();
+    if (!Number.isNaN(t)) endAtByProgram.set(p.id, t);
+  }
+  const autoRetryCutoff = now - AUTO_RETRY_HOURS * 3600 * 1000;
+
+  // 収集済み（no_channel 等も含む）を done に入れて除外する。
+  // ただし error / no_comments は「再収集対象」に戻す（done に入れない）ことがある:
+  //   - RETRY_FAILED 時: 経過時間に関係なく全て再収集（手動バックフィル）
+  //   - 通常時: 放送終了が AUTO_RETRY_HOURS 以内（過去ログ反映待ちの可能性）なら再収集
+  // collected / no_channel は常に done（冪等性を保ち、二重収集しない）。
   const done = new Set<string>();
   for (const ids of chunk((programs ?? []).map((p) => p.id), 200)) {
     const { data } = await db
@@ -136,7 +154,11 @@ export async function collectJikkyo(): Promise<CollectJikkyoResult> {
       .eq("source", SOURCE)
       .in("program_id", ids);
     for (const row of data ?? []) {
-      if (RETRY_FAILED && RETRYABLE_STATUS.has(row.status)) continue;
+      if (RETRYABLE_STATUS.has(row.status)) {
+        const endAt = endAtByProgram.get(row.program_id) ?? 0;
+        const recent = endAt >= autoRetryCutoff;
+        if (RETRY_FAILED || recent) continue; // 再収集対象（done に入れない）
+      }
       done.add(row.program_id);
     }
   }
