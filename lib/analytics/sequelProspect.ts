@@ -68,7 +68,8 @@ function percentileFn(values: number[]): (v: number) => number {
   return (v: number): number => {
     const countBelow = sorted.filter((x) => x < v).length;
     const countEqual = sorted.filter((x) => x === v).length;
-    const pct = n <= 1 ? 100 : ((countBelow + countEqual / 2) / (n - 1)) * 100;
+    // 母数1のシグナルは比較できないため中立(50)。100だと単独作品のスコアを過大評価する。
+    const pct = n <= 1 ? 50 : ((countBelow + countEqual / 2) / (n - 1)) * 100;
     return Math.max(0, Math.min(100, Math.round(pct * 10) / 10));
   };
 }
