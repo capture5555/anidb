@@ -700,7 +700,11 @@ async function BuzzSection() {
               }
               unit="/5"
             />
-            <BuzzStat label="話数別データ" value={epLeaders.length} unit="話" />
+            <BuzzStat
+              label="ポジティブ率"
+              value={sentTotal > 0 ? Math.round((sentCounts.positive / sentTotal) * 100) : 0}
+              unit="%"
+            />
             <BuzzStat label="話題ワード" value={topics.length} unit="語" />
           </div>
           {sentTotal > 0 && (
@@ -2105,11 +2109,56 @@ async function CollectionSection() {
         )}
       </section>
 
+      {/* 自動更新スケジュール（各cronの実行頻度メモ） */}
+      <UpdateScheduleCard />
+
       <p className="text-xs text-muted leading-relaxed">
         ※ 収集は個人運営の過去ログAPIへ配慮し、1番組ずつ間隔を空けて取得しています。
         放送直後はAPIへの反映に時間がかかるため、45分のバッファを置いてから収集を開始します。
       </p>
     </div>
+  );
+}
+
+/** 各バックグラウンド処理(GitHub Actions cron)の実行頻度。時刻はすべて日本時間(JST)。 */
+const UPDATE_SCHEDULE: { task: string; cadence: string; detail: string }[] = [
+  { task: "番組表・作品データ取込", cadence: "1日2回 6:00 / 18:00", detail: "Annictから番組・作品・話数を同期" },
+  { task: "ポスター・人気度の補完", cadence: "1日2回 6:30 / 18:30", detail: "AniListポスター＋Annict watchers を更新" },
+  { task: "作品スコア統計", cadence: "毎日 5:30", detail: "Annictの視聴ステータス集計を更新" },
+  { task: "ニコニコ実況コメント収集", cadence: "毎時 15分", detail: "放送終了45分後〜を順次収集・分単位で分析" },
+  { task: "分析スナップショット再計算", cadence: "30分おき", detail: "ハブ／作品分析を事前計算しページを高速化" },
+  { task: "Xバズ収集", cadence: "3時間おき", detail: "Grok x_search で作品・話数の反応と実ポストを蓄積" },
+  { task: "サイト再デプロイ", cadence: "mainへの反映時", detail: "コード更新をCloudflareへ自動公開" },
+];
+
+function UpdateScheduleCard() {
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-lg mb-1">自動更新スケジュール</h2>
+      <p className="text-xs text-muted mb-4">
+        各データはバックグラウンドで定期的に自動更新されています（時刻は日本時間）。
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[480px] text-sm border-collapse">
+          <thead>
+            <tr className="text-xs text-muted border-b border-line">
+              <th className="text-left font-bold py-2 pr-3">処理</th>
+              <th className="text-left font-bold py-2 px-2 w-40">頻度</th>
+              <th className="text-left font-bold py-2 pl-2">内容</th>
+            </tr>
+          </thead>
+          <tbody>
+            {UPDATE_SCHEDULE.map((s) => (
+              <tr key={s.task} className="border-b border-line/60">
+                <td className="py-2 pr-3 font-medium text-ink whitespace-nowrap">{s.task}</td>
+                <td className="py-2 px-2 text-ink-soft tabular-nums whitespace-nowrap">{s.cadence}</td>
+                <td className="py-2 pl-2 text-xs text-muted">{s.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
