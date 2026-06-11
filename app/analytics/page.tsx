@@ -875,8 +875,8 @@ async function IndustrySection({ period }: { period?: string }) {
   const curYear = new Date().getFullYear();
   const { filter, label, key } = parsePeriod(period, curYear);
 
-  const volumeAll = await getSeasonVolume().catch((): SeasonVolume[] => []);
-  const [scorecards, vas, popular, topAni, topMal, genreInsights] = await Promise.all([
+  const [volumeAll, scorecards, vas, popular, topAni, topMal, genreInsights] = await Promise.all([
+    getSeasonVolume().catch((): SeasonVolume[] => []),
     getStudioScorecards({ limit: 20 }).catch((): StudioScorecard[] => []),
     getVaRanking(filter, 24).catch((): VaStat[] => []),
     getPopular(filter, 12).catch((): RatedWork[] => []),

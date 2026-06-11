@@ -19,7 +19,8 @@
     "cleanup-google-events": "node --experimental-strip-types scripts/cleanup-google-events.ts",
     "collect-annict-stats": "node --experimental-strip-types scripts/collect-annict-stats.ts",
     "collect-jikkyo": "node --experimental-strip-types scripts/collect-jikkyo.ts",
-    "reanalyze-comments": "node --experimental-strip-types scripts/reanalyze-comments.ts"
+    "reanalyze-comments": "node --experimental-strip-types scripts/reanalyze-comments.ts",
+    "compute-snapshots": "node --experimental-strip-types scripts/compute-snapshots.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

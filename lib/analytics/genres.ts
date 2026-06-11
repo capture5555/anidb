@@ -9,6 +9,7 @@
 import { getAdminClient } from "../supabase/admin.ts";
 import { mean } from "./studios.ts";
 import { memoizeTTL } from "../cache.ts";
+import { fromSnapshotOrLive } from "./snapshots.ts";
 
 export interface GenreInsight {
   genre: string;
@@ -29,7 +30,7 @@ function resolveScore(anilistScore: number | null, malScore: number | null): num
  * ジャンルごとの統計を返す。worksCount 降順でソート。
  * DB アクセスが失敗した場合は空配列を返す（UI を壊さない）。
  */
-async function getGenreInsightsUncached(): Promise<GenreInsight[]> {
+export async function getGenreInsightsUncached(): Promise<GenreInsight[]> {
   try {
     const db = getAdminClient();
 
@@ -94,8 +95,13 @@ async function getGenreInsightsUncached(): Promise<GenreInsight[]> {
   }
 }
 
+/** ジャンル動向の LIVE 計算（30分メモ化）。スナップショット欠如時のフォールバック。 */
+const getGenreInsightsLive = memoizeTTL(getGenreInsightsUncached, () => "genres", 1800000);
+
 /**
- * ジャンル動向（30分メモ化）。エクスポート名・挙動は従来どおり。
- * work_genres を全ページ走査する重い集計をキャッシュする。
+ * ジャンル動向。エクスポート名・挙動は従来どおり。
+ * まず事前計算スナップショット("genre_insights")を読み、無ければ LIVE 計算へフォールバック。
  */
-export const getGenreInsights = memoizeTTL(getGenreInsightsUncached, () => "genres", 1800000);
+export function getGenreInsights(): Promise<GenreInsight[]> {
+  return fromSnapshotOrLive("genre_insights", getGenreInsightsLive);
+}

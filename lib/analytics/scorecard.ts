@@ -16,6 +16,7 @@ import { getAdminClient } from "../supabase/admin.ts";
 import { seasonOf, SEASON_LABELS } from "../season.ts";
 import type { Season } from "../types.ts";
 import { memoizeTTL } from "../cache.ts";
+import { fromSnapshotOrLive } from "./snapshots.ts";
 
 const chunk = <T,>(arr: T[], size: number): T[][] => {
   const out: T[][] = [];
@@ -191,8 +192,11 @@ interface ScorecardWorkRow {
 const WORK_COLUMNS =
   "id, title, poster_url, key_visual_url, popularity, anilist_score, anilist_popularity, mal_score, mal_members";
 
-/** 今期作品のクール診断（偏差値カルテ＋4象限）。挙動は従来どおり。 */
-async function getCoolScorecardUncached(): Promise<CoolScorecard> {
+/**
+ * 今期作品のクール診断（偏差値カルテ＋4象限）。挙動は従来どおり。
+ * スナップショット/メモ化を一切経由しない LIVE 計算。compute-snapshots から呼ぶ。
+ */
+export async function getCoolScorecardUncached(): Promise<CoolScorecard> {
   const db = getAdminClient();
   const { year, season } = seasonOf(new Date());
 
@@ -206,11 +210,17 @@ async function getCoolScorecardUncached(): Promise<CoolScorecard> {
   return buildScorecard(year, season, (works ?? []) as ScorecardWorkRow[]);
 }
 
+/** クール診断の LIVE 計算（30分メモ化）。スナップショット欠如時のフォールバック。 */
+const getCoolScorecardLive = memoizeTTL(getCoolScorecardUncached, () => "cool", 1800000);
+
 /**
- * 今期作品のクール診断（30分メモ化）。エクスポート名・挙動は従来どおり。
- * force-dynamic ページの各レンダリングでの重い集計を抑える。
+ * 今期作品のクール診断。エクスポート名・挙動は従来どおり。
+ * まず事前計算スナップショット("cool_scorecard")を読み、無ければ LIVE 計算へフォールバック。
+ * （getWorkCohortPosition は computeSeasonScorecard 経由でこれに委譲するため恩恵を受ける）
  */
-export const getCoolScorecard = memoizeTTL(getCoolScorecardUncached, () => "cool", 1800000);
+export function getCoolScorecard(): Promise<CoolScorecard> {
+  return fromSnapshotOrLive("cool_scorecard", getCoolScorecardLive);
+}
 
 /**
  * 任意のクール（year/season）でクール診断を計算する。

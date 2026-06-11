@@ -25,14 +25,16 @@ export default async function WorkAnalyticsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const analysis = await getWorkAnalysis(id).catch(() => null);
+  // 3本の重い取得を並列化（互いに依存しない）。各々のフォールバックは従来どおり。
+  const [analysis, cohort, cohortReaction] = await Promise.all([
+    getWorkAnalysis(id).catch(() => null),
+    getWorkCohortPosition(id).catch(() => null),
+    // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
+    getCohortReactionAverage()
+      .then((r) => r.shares)
+      .catch(() => undefined),
+  ]);
   if (!analysis) notFound();
-
-  const cohort = await getWorkCohortPosition(id).catch(() => null);
-  // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
-  const cohortReaction = await getCohortReactionAverage()
-    .then((r) => r.shares)
-    .catch(() => undefined);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">

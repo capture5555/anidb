@@ -9,6 +9,7 @@
 
 import { getAdminClient } from "../supabase/admin.ts";
 import { memoizeTTL } from "../cache.ts";
+import { fromSnapshotOrLive } from "./snapshots.ts";
 
 /* ================================================================
    純関数（単体テスト可）
@@ -123,7 +124,7 @@ async function paginate(build: (from: number) => any): Promise<StaffWorkRow[]> {
  * @param opts.minScoredWorks ノイズフロア（デフォルト 3）
  * @param opts.limit          上位N件（avgScore 降順）。デフォルト 20。
  */
-async function getStudioScorecardsUncached(opts?: {
+export async function getStudioScorecardsUncached(opts?: {
   minScoredWorks?: number;
   limit?: number;
 }): Promise<StudioScorecard[]> {
@@ -271,12 +272,25 @@ async function getStudioScorecardsUncached(opts?: {
   return scorecards.slice(0, limit);
 }
 
-/**
- * スタジオ・スコアカード（opts 単位で30分メモ化）。エクスポート名・挙動は従来どおり。
- * 全期間の work_staff × works を走査する重い集計をキャッシュする。
- */
-export const getStudioScorecards = memoizeTTL(
+/** スタジオ・スコアカードの LIVE 計算（opts 単位で30分メモ化）。 */
+const getStudioScorecardsLive = memoizeTTL(
   getStudioScorecardsUncached,
   (opts) => `studio:${opts?.minScoredWorks ?? 3}:${opts?.limit ?? 20}`,
   1800000,
 );
+
+/**
+ * スタジオ・スコアカード。エクスポート名・挙動は従来どおり。
+ * デフォルト opts（minScoredWorks=3, limit=20）のときだけ事前計算スナップショットを使い、
+ * 非デフォルト opts のときは LIVE 計算する。スナップショット欠如時も LIVE へフォールバック。
+ */
+export function getStudioScorecards(opts?: {
+  minScoredWorks?: number;
+  limit?: number;
+}): Promise<StudioScorecard[]> {
+  const minScoredWorks = opts?.minScoredWorks ?? 3;
+  const limit = opts?.limit ?? 20;
+  const isDefault = minScoredWorks === 3 && limit === 20;
+  if (!isDefault) return getStudioScorecardsLive(opts);
+  return fromSnapshotOrLive("studio_scorecards", () => getStudioScorecardsLive(opts));
+}
