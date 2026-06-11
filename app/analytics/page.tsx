@@ -45,7 +45,14 @@ import {
   type CollectionJob,
   type CollectionGap,
 } from "@/lib/analytics/collectionHealth";
-import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight, compareInsight, compareStaffInsight } from "@/lib/analytics/insights";
+import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight, compareInsight, compareStaffInsight, toPercentileRank } from "@/lib/analytics/insights";
+import {
+  getTimeslotHeatmap,
+  timeslotInsight,
+  TIMESLOT_WEEKDAYS,
+  type TimeslotHeatmap,
+  type TimeslotCell,
+} from "@/lib/analytics/timeslots";
 import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
@@ -148,13 +155,14 @@ export default async function AnalyticsPage({
 /* ================================================================ 視聴分析 */
 
 async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
-  const [retention, hot, peaks, ratios] = await Promise.all([
+  const [retention, hot, peaks, ratios, timeslots] = await Promise.all([
     basis === "annict"
       ? getRetentionSeries(8).catch(() => ({ snapshotDate: null, series: [] }))
       : getJikkyoRetentionSeries(8).catch(() => ({ snapshotDate: null, series: [] })),
     getHotPrograms(6, 14).catch(() => []),
     getPeakMoments(10).catch(() => []),
     getReactionRatios(1000).catch(() => []),
+    getTimeslotHeatmap().catch((): TimeslotHeatmap => ({ cells: [], maxAvg: 0 })),
   ]);
 
   return (
@@ -288,11 +296,108 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
         </section>
       )}
 
+      {/* 放送曜日×時間帯ヒートマップ */}
+      <TimeslotHeatmapCard heatmap={timeslots} />
+
       <p className="text-xs text-muted leading-relaxed">
         ※ データソース: Annict（記録数）・ニコニコ実況 過去ログAPI（コメント）。
         どちらも各サービスの利用者を母数とした参考値であり、テレビの視聴率・視聴者数を示すものではありません。
       </p>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- 放送曜日×時間帯ヒートマップ */
+
+/**
+ * 放送曜日×時間帯ヒートマップ（サーバーコンポーネント）。
+ * 行＝曜日(月..日)、列＝18時〜深夜3時(27時表記)。セル濃度＝平均コメント数/最大平均。
+ */
+function TimeslotHeatmapCard({ heatmap }: { heatmap: TimeslotHeatmap }) {
+  const { cells, maxAvg } = heatmap;
+  if (cells.length === 0 || maxAvg <= 0) return null;
+
+  const HOURS = Array.from({ length: 10 }, (_, i) => 18 + i); // 18..27
+  const byKey = new Map<string, TimeslotCell>();
+  for (const c of cells) byKey.set(`${c.weekday}:${c.hour}`, c);
+
+  // 27時表記ラベル（18..23 はそのまま、24..27 は「24時」等）
+  const hourLabel = (h: number) => `${h}`;
+  const insightLine = timeslotInsight(cells);
+
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-lg mb-1">放送曜日×時間帯ヒートマップ</h2>
+      <p className="text-xs text-muted mb-1">
+        放送中作品の本放送について、ニコニコ実況コメントの平均数で「枠の盛り上がり」を可視化。
+        縦＝曜日(JST)、横＝18時〜深夜3時（25時＝翌1時の深夜表記）。
+      </p>
+      <p className="text-[0.68rem] text-muted mb-4 leading-relaxed">
+        ※ 実況コメント平均による「枠の盛り上がり」。番組数が少ない枠はブレ大。
+      </p>
+
+      {insightLine && <AutoInsight lines={[insightLine]} />}
+
+      <div className="overflow-x-auto">
+        <table className="border-collapse" style={{ minWidth: 560 }}>
+          <thead>
+            <tr>
+              <th className="w-8" />
+              {HOURS.map((h) => (
+                <th key={h} className="text-[0.6rem] font-bold text-muted px-0.5 pb-1 text-center tabular-nums">
+                  {hourLabel(h)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {TIMESLOT_WEEKDAYS.map((dow, wi) => (
+              <tr key={dow}>
+                <td className="text-[0.7rem] font-bold text-ink-soft pr-2 text-right">{dow}</td>
+                {HOURS.map((h) => {
+                  const cell = byKey.get(`${wi}:${h}`);
+                  if (!cell) {
+                    return (
+                      <td key={h} className="p-0.5">
+                        <div className="w-full aspect-square rounded-[3px] bg-paper" style={{ minWidth: 28 }} />
+                      </td>
+                    );
+                  }
+                  const intensity = Math.min(1, cell.avgComments / maxAvg);
+                  // 薄い→濃いの不透明度ステップ（accent blue）
+                  const opacity = 0.12 + intensity * 0.88;
+                  const title = `${dow}${h}時: 平均${cell.avgComments.toLocaleString()}コメ/${cell.programs}番組`;
+                  return (
+                    <td key={h} className="p-0.5">
+                      <div
+                        className="w-full aspect-square rounded-[3px]"
+                        style={{ minWidth: 28, backgroundColor: `rgba(47, 111, 219, ${opacity})` }}
+                        title={title}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 凡例 */}
+      <div className="flex items-center gap-2 mt-3 text-[0.68rem] text-muted">
+        <span>薄い=静か</span>
+        <div className="flex">
+          {[0.12, 0.34, 0.56, 0.78, 1].map((o) => (
+            <div
+              key={o}
+              className="w-5 h-3 first:rounded-l-[2px] last:rounded-r-[2px]"
+              style={{ backgroundColor: `rgba(47, 111, 219, ${o})` }}
+            />
+          ))}
+        </div>
+        <span>濃い=盛り上がる</span>
+      </div>
+    </section>
   );
 }
 
@@ -1714,6 +1819,9 @@ async function IndustrySection({ period }: { period?: string }) {
       })()}
       <GenreTrendsCard insights={genreInsights} />
 
+      {/* ジャンル機会マップ（飽和×需要） */}
+      <GenreOpportunityMapCard insights={genreInsights} />
+
       {/* IP・続編モメンタム */}
       {franchises.length > 0 && (() => {
         const fi = franchiseInsight(franchises);
@@ -1977,6 +2085,158 @@ function GenreTrendsCard({ insights }: { insights: GenreInsight[] }) {
       )}
       <p className="text-[0.68rem] text-muted mt-3 leading-relaxed">
         ※ スコアはAniList/MAL由来・各サービス利用者を母数とした参考値です。テレビ視聴率ではありません。
+      </p>
+    </section>
+  );
+}
+
+/* ================================================================ ジャンル機会マップ */
+
+/**
+ * ジャンル機会マップ（飽和×需要）。
+ * x=作品数（飽和度）, y=平均人気（需要）を各々パーセンタイル順位(0-100)へ正規化した
+ * インラインSVG散布図。サーバーコンポーネント（router不要・ホバーなし、title属性でツールチップ）。
+ */
+function GenreOpportunityMapCard({ insights }: { insights: GenreInsight[] }) {
+  const eligible = insights.filter((g) => g.worksCount >= 2 && g.avgPopularity > 0);
+
+  if (eligible.length < 4) {
+    return null;
+  }
+
+  const counts = eligible.map((g) => g.worksCount);
+  const pops = eligible.map((g) => g.avgPopularity);
+
+  // 各ジャンルを (供給percentile, 需要percentile) に正規化
+  const pts = eligible.map((g) => {
+    const supply = toPercentileRank(counts, g.worksCount); // x: 飽和度
+    const demand = toPercentileRank(pops, g.avgPopularity); // y: 需要
+    return { g, supply, demand, opportunity: demand - supply };
+  });
+
+  const top5 = [...pts].sort((a, b) => b.opportunity - a.opportunity).slice(0, 5);
+
+  // SVG レイアウト（QuadrantScatter を踏襲した寸法・配色）
+  const W = 720;
+  const H = 520;
+  const PAD = { top: 28, right: 24, bottom: 44, left: 48 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+  const sx = (v: number) => PAD.left + (v / 100) * innerW;
+  const sy = (v: number) => PAD.top + (1 - v / 100) * innerH;
+
+  const quads = [
+    { label: "機会（需要高×供給少）", cx: 0.25, cy: 0.25, color: "#2ebd85" },
+    { label: "激戦区", cx: 0.75, cy: 0.25, color: "#e8482f" },
+    { label: "ニッチ", cx: 0.25, cy: 0.75, color: "#9b59b6" },
+    { label: "供給過多", cx: 0.75, cy: 0.75, color: "#f5a623" },
+  ];
+
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-lg mb-1">ジャンル機会マップ（飽和×需要）</h2>
+      <p className="text-xs text-muted mb-4">
+        横＝作品数（飽和度）、縦＝平均人気（需要）。どちらも全ジャンル内のパーセンタイル順位。
+        左上＝機会（需要高×供給少・greenlight候補）、右上＝激戦区、左下＝ニッチ、右下＝供給過多。
+        対象は作品数2本以上のジャンル。
+      </p>
+
+      <div className="overflow-x-auto">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[560px]" role="img" aria-label="ジャンルの飽和×需要マップ">
+          {/* 象限の背景ラベル */}
+          {quads.map((q) => (
+            <text
+              key={q.label}
+              x={PAD.left + q.cx * innerW}
+              y={PAD.top + q.cy * innerH}
+              textAnchor="middle"
+              fontSize="13"
+              fontWeight="bold"
+              fill={q.color}
+              opacity={0.28}
+            >
+              {q.label}
+            </text>
+          ))}
+
+          {/* 基準線（50パーセンタイル） */}
+          <line x1={sx(50)} x2={sx(50)} y1={PAD.top} y2={H - PAD.bottom} stroke="#9aa3b2" strokeDasharray="4 4" />
+          <line x1={PAD.left} x2={W - PAD.right} y1={sy(50)} y2={sy(50)} stroke="#9aa3b2" strokeDasharray="4 4" />
+
+          {/* 枠 */}
+          <rect x={PAD.left} y={PAD.top} width={innerW} height={innerH} fill="none" stroke="#e8eaef" />
+
+          {/* 軸ラベル */}
+          <text x={W / 2} y={H - 10} textAnchor="middle" fontSize="11" fill="#8a909c">
+            作品数（飽和度・パーセンタイル）→ 供給が多い
+          </text>
+          <text
+            x={14}
+            y={H / 2}
+            textAnchor="middle"
+            fontSize="11"
+            fill="#8a909c"
+            transform={`rotate(-90 14 ${H / 2})`}
+          >
+            平均人気（需要・パーセンタイル）→ 需要が高い
+          </text>
+
+          {/* 点 */}
+          {pts.map((p) => {
+            const cx = sx(p.supply);
+            const cy = sy(p.demand);
+            const isOpp = p.demand >= 50 && p.supply < 50;
+            return (
+              <g key={p.g.genre}>
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={5}
+                  fill={isOpp ? "#2ebd85" : "#2f6fdb"}
+                  fillOpacity={0.55}
+                  stroke={isOpp ? "#2ebd85" : "#2f6fdb"}
+                  strokeWidth={1}
+                >
+                  <title>
+                    {`${p.g.genre}: 需要${p.demand} / 供給${p.supply}（平均人気${p.g.avgPopularity.toLocaleString()}・${p.g.worksCount}本）`}
+                  </title>
+                </circle>
+                <text x={cx + 7} y={cy + 3} fontSize="10" fill="#5a616e">
+                  {p.g.genre}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* 機会ジャンル TOP5 */}
+      <div className="mt-5">
+        <h3 className="font-black text-[0.92rem] text-emerald-600 mb-1">機会ジャンル TOP5</h3>
+        <p className="text-[0.68rem] text-muted mb-3 leading-relaxed">
+          需要パーセンタイル − 供給パーセンタイルが大きい順＝需要の割に供給が薄いジャンル。
+        </p>
+        <ol className="divide-y divide-line">
+          {top5.map((p, i) => (
+            <li key={p.g.genre} className="flex items-center gap-3 py-2">
+              <span className={`w-5 text-right font-black tabular-nums shrink-0 ${i < 3 ? "text-accent" : "text-muted"}`}>
+                {i + 1}
+              </span>
+              <span className="flex-1 min-w-0 text-sm font-medium text-ink truncate">{p.g.genre}</span>
+              <span className="text-xs text-muted tabular-nums shrink-0 whitespace-nowrap">
+                平均人気{p.g.avgPopularity.toLocaleString()} / {p.g.worksCount}本 / スコア
+                {p.g.avgScore != null ? p.g.avgScore.toFixed(1) : "—"}
+              </span>
+              <span className="text-xs font-black text-emerald-600 tabular-nums shrink-0 w-12 text-right">
+                +{p.opportunity}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <p className="text-[0.68rem] text-muted mt-3 leading-relaxed">
+        ※ 需要＝Annict平均ウォッチャー数・供給＝登録作品数による近似。
       </p>
     </section>
   );

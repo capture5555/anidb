@@ -20,6 +20,18 @@ function fmtBa(ba: number): string {
   return `.${String(Math.round(ba * 1000)).padStart(3, "0")}`;
 }
 
+/**
+ * 値 v が values 全体の中で占めるパーセンタイル順位（0-100）を返す純関数。
+ * 「v 以下の要素数 ÷ 全要素数 × 100」。同値は同順位扱い。
+ * values が空、または v が含まれない場合でも安全に計算する（v 自身は外から渡す）。
+ * 飽和×需要マップで作品数・平均人気を 0-100 に正規化するのに使う。
+ */
+export function toPercentileRank(values: number[], v: number): number {
+  if (values.length === 0) return 50;
+  const below = values.filter((x) => x <= v).length;
+  return Math.round((below / values.length) * 100);
+}
+
 /** 4象限の作品数をカウントする */
 function countQuadrants(works: CoolScorecard["works"]): Record<string, number> {
   const counts: Record<string, number> = {
