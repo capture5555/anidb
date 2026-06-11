@@ -4,7 +4,7 @@ import { getDataProvider } from "./data/provider.ts";
 import { buildEvent } from "./sync/eventBuilder.ts";
 import { pickOnePerEpisode } from "./programs.ts";
 import { buildIcs, type IcsEvent } from "./ics.ts";
-import { DEFAULT_REGION, isDisplayChannel, type Region } from "./regions.ts";
+import { DEFAULT_REGION, isStreamingChannel, type Region } from "./regions.ts";
 import { getUserRegion } from "./userRegion.ts";
 import type { Program, WorkDetail } from "./types.ts";
 
@@ -67,8 +67,9 @@ function workToEvents(work: WorkDetail, opts: FeedOptions, region: Region = DEFA
   const to = now + FUTURE_DAYS * 86400000;
   const inWindow = work.programs.filter((p: Program) => {
     const t = new Date(p.startAt).getTime();
-    // その地域で視聴できる放送のみ（地上波地域はBS・配信を入れない／放送が無い回はイベント無し）
-    return t >= from && t <= to && !p.isRebroadcast && isDisplayChannel(p.channelName, region);
+    // 購読作品はカレンダーに出したいので、配信・AT-Xだけ除外し放送波(地上波/BS)は残す。
+    // 放送時刻の代表局は pickOnePerEpisode が地域優先で選ぶ（番組表ほど厳密に地域で落とさない）。
+    return t >= from && t <= to && !p.isRebroadcast && !isStreamingChannel(p.channelName);
   });
   // 系列局の同時ネットは1話1件（住んでいる地域の代表局）に集約
   return pickOnePerEpisode(inWindow, region).map((program) => {
