@@ -4,7 +4,7 @@ import { getDataProvider } from "./data/provider.ts";
 import { buildEvent } from "./sync/eventBuilder.ts";
 import { pickOnePerEpisode } from "./programs.ts";
 import { buildIcs, type IcsEvent } from "./ics.ts";
-import { DEFAULT_REGION, isStreamingChannel, type Region } from "./regions.ts";
+import { DEFAULT_REGION, isDisplayChannel, isStreamingChannel, type Region } from "./regions.ts";
 import { getUserRegion } from "./userRegion.ts";
 import type { Program, WorkDetail } from "./types.ts";
 
@@ -65,13 +65,17 @@ function workToEvents(work: WorkDetail, opts: FeedOptions, region: Region = DEFA
   const now = Date.now();
   const from = now - PAST_DAYS * 86400000;
   const to = now + FUTURE_DAYS * 86400000;
-  const inWindow = work.programs.filter((p: Program) => {
+  // 窓内・本放送・配信(AT-X含む)以外の放送波。
+  const base = work.programs.filter((p: Program) => {
     const t = new Date(p.startAt).getTime();
-    // 購読作品はカレンダーに出したいので、配信・AT-Xだけ除外し放送波(地上波/BS)は残す。
-    // 放送時刻の代表局は pickOnePerEpisode が地域優先で選ぶ（番組表ほど厳密に地域で落とさない）。
     return t >= from && t <= to && !p.isRebroadcast && !isStreamingChannel(p.channelName);
   });
-  // 系列局の同時ネットは1話1件（住んでいる地域の代表局）に集約
+  // その地域で視聴できる放送（関東ならMX/テレ東/日テレ系…＋NHK）があるなら、それだけに絞る。
+  // ＝他地域局(関西テレビ等)やBSの重複を出さない。地域で見られる放送が1つも無い作品だけ、
+  //   カレンダーから消さないよう全放送を残す（BSのみ等の作品の保険）。
+  const regional = base.filter((p) => isDisplayChannel(p.channelName, region));
+  const inWindow = regional.length > 0 ? regional : base;
+  // 同じ回の系列ネットは1話1件（地域の代表局）に集約
   return pickOnePerEpisode(inWindow, region).map((program) => {
     // episode_id で紐付け。未リンク（話数レコード未作成等）の場合は話数(count)で代替マッチし、
     // サブタイトルが取れるようにする（位置ベース紐付けの取りこぼし対策）。
