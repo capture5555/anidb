@@ -143,6 +143,264 @@ function parsePeriod(p: string | undefined, curYear: number): { filter: Filter; 
   return { filter: {}, label: "全期間", key: "all" };
 }
 
+/* ================================================================ ロール別プリセット */
+
+type RoleKey = "all" | "production" | "pr" | "hr" | "programming";
+
+interface RolePresetItem {
+  label: string;
+  description: string;
+  href: string;
+}
+
+interface RoleDef {
+  key: RoleKey;
+  label: string;
+  items: RolePresetItem[];
+}
+
+const ROLE_DEFS: RoleDef[] = [
+  {
+    key: "all",
+    label: "総合",
+    items: [
+      {
+        label: "総合ランキング（今期）",
+        description: "5シグナルを合成した今期クール横断スコア。全体の俯瞰に。",
+        href: "/analytics",
+      },
+      {
+        label: "今期の所感（AI）",
+        description: "Grok x_search による今クールの傾向・注目作サマリー。",
+        href: "/analytics/ai-log",
+      },
+      {
+        label: "視聴分析タブ",
+        description: "継続率・盛り上がり・リアクション傾向などの視聴データ全般。",
+        href: "/analytics",
+      },
+      {
+        label: "Xバズタブ",
+        description: "SNS 上の話題量・センチメント・急上昇作品。",
+        href: "/analytics?view=buzz",
+      },
+      {
+        label: "業界データタブ",
+        description: "スタジオ・ジャンル・フランチャイズなど業界横断の指標。",
+        href: "/analytics?view=industry",
+      },
+    ],
+  },
+  {
+    key: "production",
+    label: "制作",
+    items: [
+      {
+        label: "話数別3面比較（作品ページ）",
+        description: "各回の実況・Xバズ・Annict記録を重ねて確認。どの回が刺さったかを把握。",
+        href: "/analytics",
+      },
+      {
+        label: "シーズン俯瞰ヒートマップ",
+        description: "今期全作品×話数の実況コメントを俯瞰。盛り上がった回を即見。",
+        href: "/analytics",
+      },
+      {
+        label: "リアクション別ランキング（笑い・泣き・作画）",
+        description: "実況コメントを分類し、作画言及率・笑い率・感動率でランキング。質の軸を確認。",
+        href: "/analytics",
+      },
+      {
+        label: "クール残留カーブ一覧",
+        description: "全作品の話数ごと継続率を小多数比較。脱落タイミングが掴める。",
+        href: "/analytics",
+      },
+      {
+        label: "クール診断タブ",
+        description: "今クールのスコアカード。総合ランキングと信号強度をまとめて確認。",
+        href: "/analytics?view=scorecard",
+      },
+    ],
+  },
+  {
+    key: "pr",
+    label: "広報・宣伝",
+    items: [
+      {
+        label: "急上昇アラート",
+        description: "直近話で前話平均より大きく伸びた作品。朝チェック・PR効果測定に。",
+        href: "/analytics",
+      },
+      {
+        label: "認知 × 熱量 象限マップ（Xバズ）",
+        description: "「総合ヒット・PR先行・ファン型ダークホース・様子見」の4象限で作品位置づけを可視化。",
+        href: "/analytics?view=buzz",
+      },
+      {
+        label: "初速スコア（立ち上がりの強さ）",
+        description: "第1話の実況・Xバズのクール内相対順位。初動の強弱を定量確認。",
+        href: "/analytics",
+      },
+      {
+        label: "クール内Xバズランキング",
+        description: "今期作品の最新Xバズ量をランキング。センチメント（ポジ/混合/ネガ）も一覧。",
+        href: "/analytics?view=buzz",
+      },
+      {
+        label: "話題ワード（クール横断トピック）",
+        description: "複数作品に跨がるXの話題キーワード。クール全体の関心マップ。",
+        href: "/analytics?view=buzz",
+      },
+    ],
+  },
+  {
+    key: "hr",
+    label: "人事・キャスティング",
+    items: [
+      {
+        label: "声優スコアカード",
+        description: "声優ごとの出演作品スコア・打率・ブレイク兆候。起用判断の参考に。",
+        href: "/analytics?view=people",
+      },
+      {
+        label: "スタッフスコアカード",
+        description: "監督・シリーズ構成ほか職種ごとに作品の評価傾向を集計。",
+        href: "/analytics?view=people",
+      },
+      {
+        label: "声優比較（サイドバイサイド）",
+        description: "2名の声優を並べて出演作・スコアを比較。オーディション前後の検討に。",
+        href: "/analytics?view=people",
+      },
+      {
+        label: "人気ランキング（Annict）",
+        description: "ウォッチャー数が多い作品一覧。認知度の高い出演歴を確認。",
+        href: "/analytics?view=industry",
+      },
+    ],
+  },
+  {
+    key: "programming",
+    label: "編成・配信",
+    items: [
+      {
+        label: "放送曜日×時間帯ヒートマップ",
+        description: "実況コメント平均で「枠の盛り上がり」を可視化。枠競合・編成の最適化に。",
+        href: "/analytics",
+      },
+      {
+        label: "ジャンル需給・動向（業界データ）",
+        description: "ジャンル別の平均スコア・作品数・伸び率。需給ギャップと配信強化余地を把握。",
+        href: "/analytics?view=industry",
+      },
+      {
+        label: "総合ランキング（今期）",
+        description: "今期の作品横断スコア。どの作品を優先ラインナップに置くかの参考。",
+        href: "/analytics",
+      },
+      {
+        label: "国内 × 海外乖離（グローバルギャップ）",
+        description: "AniList（海外）とAnnict（国内）スコアの差が大きい作品。配信戦略の根拠に。",
+        href: "/analytics?view=industry",
+      },
+      {
+        label: "フランチャイズ勢い（業界データ）",
+        description: "続編・シリーズの勢い指数。続編投資・配信ライブラリ編成の参考に。",
+        href: "/analytics?view=industry",
+      },
+    ],
+  },
+];
+
+/**
+ * 現在の searchParams を保持しつつ role だけ差し替えた URL を生成するヘルパー。
+ * サーバーコンポーネントなので純粋な文字列操作で組み立てる。
+ */
+function buildRoleHref(
+  role: RoleKey,
+  currentSp: {
+    view?: string;
+    period?: string;
+    basis?: string;
+    role?: string;
+  }
+): string {
+  const params = new URLSearchParams();
+  if (currentSp.view) params.set("view", currentSp.view);
+  if (currentSp.period) params.set("period", currentSp.period);
+  if (currentSp.basis) params.set("basis", currentSp.basis);
+  if (role !== "all") params.set("role", role);
+  const qs = params.toString();
+  return `/analytics${qs ? `?${qs}` : ""}`;
+}
+
+/**
+ * ロール選択チップ＋注目ポイントカード。
+ * タイトルの下・タブの上に配置する。
+ */
+function RolePresetsPanel({
+  currentRole,
+  currentSp,
+}: {
+  currentRole: RoleKey;
+  currentSp: {
+    view?: string;
+    period?: string;
+    basis?: string;
+    role?: string;
+  };
+}) {
+  const roleDef = ROLE_DEFS.find((r) => r.key === currentRole) ?? ROLE_DEFS[0]!;
+
+  return (
+    <div className="mb-5">
+      {/* ロール選択チップ列 */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {ROLE_DEFS.map((rd) => {
+          const active = rd.key === currentRole;
+          return (
+            <Link
+              key={rd.key}
+              href={buildRoleHref(rd.key, currentSp)}
+              className={`inline-block whitespace-nowrap px-3.5 py-1 rounded-full text-xs font-bold transition-colors ${
+                active
+                  ? "bg-accent text-white"
+                  : "bg-surface border border-line text-ink-soft hover:border-line-strong hover:text-ink"
+              }`}
+            >
+              {rd.label}
+            </Link>
+          );
+        })}
+      </div>
+
+      {/* 注目ポイントカード */}
+      <div className="card p-4 sm:p-5 border-l-4 border-l-accent/60">
+        <p className="text-[0.68rem] font-black text-accent mb-3 uppercase tracking-wide">
+          {roleDef.label} ─ 注目ポイント
+        </p>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {roleDef.items.map((item) => (
+            <li key={item.label}>
+              <Link
+                href={item.href}
+                className="flex flex-col gap-0.5 rounded-lg border border-line bg-paper px-3.5 py-2.5 hover:border-accent/50 hover:bg-paper transition-colors group"
+              >
+                <span className="text-xs font-bold text-ink group-hover:text-primary transition-colors leading-snug">
+                  {item.label} →
+                </span>
+                <span className="text-[0.68rem] text-muted leading-relaxed">
+                  {item.description}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 export default async function AnalyticsPage({
   searchParams,
 }: {
@@ -152,6 +410,7 @@ export default async function AnalyticsPage({
     basis?: string;
     compare?: string;
     comparestaff?: string;
+    role?: string;
     // 人材タブ・声優スコアカード sort
     vasort?: string;
     vadir?: string;
@@ -181,6 +440,12 @@ export default async function AnalyticsPage({
               ? "buzz"
               : "viewing";
   const basis = sp.basis === "annict" ? "annict" : "jikkyo";
+  // ロール別プリセット（?role=all|production|pr|hr|programming）
+  const VALID_ROLES: RoleKey[] = ["all", "production", "pr", "hr", "programming"];
+  const role: RoleKey =
+    sp.role && (VALID_ROLES as string[]).includes(sp.role)
+      ? (sp.role as RoleKey)
+      : "all";
   // 今期の所感（Grok x_search 由来・cron生成のスナップショット）。未生成なら非表示。
   const seasonComment = await getSeasonComment().catch(() => null);
 
@@ -210,6 +475,12 @@ export default async function AnalyticsPage({
           </p>
         </div>
       )}
+
+      {/* ロール別プリセット */}
+      <RolePresetsPanel
+        currentRole={role}
+        currentSp={{ view: sp.view, period: sp.period, basis: sp.basis, role: sp.role }}
+      />
 
       {/* タブ */}
       <nav className="border-b-2 border-line mb-6 overflow-x-auto">
