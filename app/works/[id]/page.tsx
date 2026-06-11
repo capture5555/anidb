@@ -7,13 +7,6 @@ import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "@/components/WorkCover";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SubscribeButton } from "@/components/SubscribeButton";
-import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
-import { CohortPositionPanel } from "@/components/charts/CohortPositionPanel";
-import { XBuzzSection } from "@/components/charts/XBuzzSection";
-import { getWorkAnalysis } from "@/lib/analytics/viewing";
-import { getWorkXBuzz, getWorkXPosts } from "@/lib/analytics/xbuzz";
-import { getCohortReactionAverage } from "@/lib/analytics/reactionFingerprint";
-import { getWorkCohortPosition } from "@/lib/analytics/scorecard";
 import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
 import { pickOnePerEpisode } from "@/lib/programs";
@@ -64,22 +57,6 @@ export default async function WorkDetailPage({
   const channelCount = new Set(
     work.programs.filter((p) => p.channelName).map((p) => p.channelName),
   ).size;
-
-  // 3本の重い取得を並列化（互いに依存しない）。各々のフォールバックは従来どおり。
-  const [analysis, cohortReaction, cohort, xbuzz, xposts] = await Promise.all([
-    // 視聴分析データ（実況の盛り上がり・継続率・全話）。seedモード等では黙ってスキップ
-    getWorkAnalysis(id).catch(() => null),
-    // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
-    getCohortReactionAverage()
-      .then((r) => r.shares)
-      .catch(() => undefined),
-    // クール内ポジション（偏差値カルテ）。母数に入らなければ null
-    getWorkCohortPosition(id).catch(() => null),
-    // X(Twitter) バズ（Grok x_search 分析）。未蓄積・失敗は null
-    getWorkXBuzz(id).catch(() => null),
-    // X 実ポストのサンプル。未蓄積・失敗は []
-    getWorkXPosts(id).catch(() => []),
-  ]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -172,26 +149,22 @@ export default async function WorkDetailPage({
             </section>
           )}
 
-          {/* 視聴分析（実況の盛り上がり・継続率・全話） */}
-          {analysis && (
-            <div className="space-y-5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base font-black text-accent">視聴分析</h2>
-                <span className="text-[0.7rem] text-muted">ニコニコ実況・Annict 由来の参考値</span>
-                <Link
-                  href={`/analytics/works/${work.id}`}
-                  className="ml-auto text-xs font-bold text-primary hover:underline underline-offset-2 whitespace-nowrap"
-                >
-                  詳細分析ページへ →
-                </Link>
-              </div>
-              {cohort && <CohortPositionPanel position={cohort} />}
-              <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
+          {/* 詳細分析への導線（分析は詳細分析ページに集約） */}
+          <Link
+            href={`/analytics/works/${work.id}`}
+            className="card p-5 sm:p-6 flex items-center gap-4 hover:border-primary/40 transition group"
+          >
+            <div className="flex-1 min-w-0">
+              <h2 className="text-base font-black text-accent">この作品の詳細分析</h2>
+              <p className="text-xs text-muted mt-1 leading-relaxed">
+                ニコニコ実況の盛り上がり・継続率・話ごとの評価、Xの反応（X
+                Premium・x_search）、クール内ポジションなどをまとめて見られます。
+              </p>
             </div>
-          )}
-
-          {/* Xの反応（X Premium・x_search）。X データが無ければ自動で非表示 */}
-          <XBuzzSection buzz={xbuzz} posts={xposts} />
+            <span className="text-sm font-bold text-primary whitespace-nowrap group-hover:translate-x-0.5 transition-transform">
+              詳細分析ページへ →
+            </span>
+          </Link>
 
           {/* エピソード */}
           {work.episodes.length > 0 && (
