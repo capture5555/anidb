@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import Link from "next/link";
 import { getDataProvider } from "@/lib/data/provider";
 import { SeasonTabs } from "@/components/SeasonTabs";
 import { WorkCard } from "@/components/WorkCard";
@@ -6,6 +7,7 @@ import { FilterBar } from "@/components/FilterBar";
 import { UpcomingStrip } from "@/components/UpcomingStrip";
 import type { ListTab } from "@/lib/types";
 import { seasonOf, nextSeason, formatSeason } from "@/lib/season";
+import { getLatestDailyNews } from "@/lib/analytics/news";
 
 const VALID_TABS: ListTab[] = ["this_season", "next_season", "movie"];
 
@@ -28,9 +30,10 @@ export default async function HomePage({
   const genre = sp.genre?.trim() || undefined;
 
   const provider = await getDataProvider();
-  const [{ items, total }, genres] = await Promise.all([
+  const [{ items, total }, genres, dailyNews] = await Promise.all([
     provider.listWorks({ tab, q, genre, perPage: 500 }),
     provider.listGenres(),
+    getLatestDailyNews().catch(() => null),
   ]);
 
   const now = new Date();
@@ -47,6 +50,58 @@ export default async function HomePage({
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
       {/* この後の放送（ミニ番組表） */}
       <UpcomingStrip />
+
+      {/* 今日のアニメニュース（データがある場合のみ表示） */}
+      {dailyNews && (
+        <section className="card mt-6 p-4 sm:p-5">
+          <div className="flex items-baseline gap-3 mb-3">
+            <h2 className="text-sm font-black text-ink">今日のアニメニュース</h2>
+            <time
+              dateTime={dailyNews.generatedAt}
+              className="text-[0.68rem] text-muted tabular-nums"
+            >
+              {dailyNews.date}
+            </time>
+            <Link
+              href="/analytics/ai-log?scope=news"
+              className="ml-auto text-xs font-bold text-primary hover:underline underline-offset-2 shrink-0"
+            >
+              ニュース履歴 →
+            </Link>
+          </div>
+          {dailyNews.body && (
+            <p className="text-xs text-ink-soft leading-relaxed mb-3">{dailyNews.body}</p>
+          )}
+          <ol className="space-y-2">
+            {dailyNews.items.map((item, i) => (
+              <li key={i} className="flex gap-2 items-start">
+                <span className="text-[0.68rem] font-black text-accent tabular-nums w-4 shrink-0 pt-px">
+                  {i + 1}
+                </span>
+                <div className="min-w-0">
+                  {item.url ? (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-bold text-ink hover:text-primary transition leading-snug"
+                    >
+                      {item.title}
+                    </a>
+                  ) : (
+                    <p className="text-xs font-bold text-ink leading-snug">{item.title}</p>
+                  )}
+                  {item.summary !== item.title && (
+                    <p className="text-[0.72rem] text-muted leading-snug mt-0.5">
+                      {item.summary}
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {/* タイトル行 + タブ */}
       <div className="mt-8">
