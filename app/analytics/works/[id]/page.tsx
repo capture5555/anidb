@@ -76,7 +76,7 @@ export default async function WorkAnalyticsPage({
       </div>
 
       {/* ヘッダー */}
-      <header className="card mt-3 p-5 flex items-center gap-5">
+      <header className="card mt-3 p-4 sm:p-5 flex items-start gap-4 sm:gap-5">
         <Link href={`/works/${analysis.workId}`} className="shrink-0">
           <WorkCover
             id={analysis.workId}
@@ -87,7 +87,7 @@ export default async function WorkAnalyticsPage({
         </Link>
         <div className="min-w-0">
           <p className="text-xs font-bold text-accent">作品別 視聴分析</p>
-          <h1 className="text-xl sm:text-2xl font-black leading-snug mt-1">{analysis.title}</h1>
+          <h1 className="text-xl sm:text-2xl font-black leading-snug mt-1 break-words">{analysis.title}</h1>
           <div className="flex flex-wrap gap-3 mt-1.5">
             <Link
               href={`/works/${analysis.workId}`}
