@@ -276,6 +276,7 @@ async function insertBuzzRow(
 }
 
 async function main() {
+  const startedAt = new Date().toISOString();
   // Mode B(Hermes) を優先。未設定なら Mode A(XAI) にフォールバック。どちらも無ければ exit 0。
   const hermes = isHermesConfigured();
   const collect = hermes ? collectHermes : collectXai;
@@ -387,6 +388,21 @@ async function main() {
   console.log(
     `[collect-x-buzz] done: mode=${mode} inserted=${inserted} skipped=${skipped} errors=${errors} targets=${targets.length} posts harvested=${postsHarvested}`,
   );
+
+  try {
+    await db.from("sync_runs").insert({
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      status: errors === 0 ? "ok" : "partial",
+      created_count: inserted,
+      updated_count: skipped,
+      error_count: errors,
+      note: `collect-x-buzz mode=${mode} inserted=${inserted} targets=${targets.length} posts=${postsHarvested}`,
+    });
+  } catch {
+    /* sync_runs 記録の失敗はジョブ本体に影響させない */
+  }
+
   process.exit(0);
 }
 

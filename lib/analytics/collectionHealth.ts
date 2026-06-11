@@ -162,6 +162,61 @@ export async function getRecentJobs(limit = 12): Promise<CollectionJob[]> {
   }
 }
 
+// ---------------------------------------------------------------- 全アクション実行履歴
+
+export interface SyncRunRow {
+  id: string;
+  status: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  created: number;
+  updated: number;
+  errors: number;
+  note: string | null;
+  /** note 先頭から推定したジョブ種別ラベル */
+  jobLabel: string;
+}
+
+/** note 先頭のジョブ識別子からUI用の日本語ラベルを推定する。 */
+export function inferJobLabel(note: string | null): string {
+  if (!note) return "不明";
+  if (note.startsWith("collect-jikkyo")) return "実況コメント収集";
+  if (note.startsWith("collect-annict-stats")) return "Annict視聴統計";
+  if (note.startsWith("collect-x-buzz")) return "Xバズ収集";
+  if (note.startsWith("enrich-posters")) return "ポスター補完";
+  if (note.startsWith("enrich-popularity")) return "人気度更新";
+  if (note.startsWith("enrich-scores")) return "スコア補完";
+  if (note.startsWith("compute-snapshots")) return "スナップショット計算";
+  if (note.startsWith("ingest")) return "番組・作品取込";
+  return note.split(/\s/)[0] ?? "不明";
+}
+
+/** sync_runs を新しい順に最大 limit 件取得（全ジョブ種別）。 */
+export async function getAllSyncRuns(limit = 30): Promise<SyncRunRow[]> {
+  try {
+    const db = getAdminClient();
+    const { data, error } = await db
+      .from("sync_runs")
+      .select("id, status, started_at, finished_at, created_count, updated_count, error_count, note")
+      .order("finished_at", { ascending: false, nullsFirst: false })
+      .limit(limit);
+    if (error) return [];
+    return (data ?? []).map((r) => ({
+      id: r.id,
+      status: r.status ?? null,
+      startedAt: r.started_at ?? null,
+      finishedAt: r.finished_at ?? null,
+      created: r.created_count ?? 0,
+      updated: r.updated_count ?? 0,
+      errors: r.error_count ?? 0,
+      note: r.note ?? null,
+      jobLabel: inferJobLabel(r.note ?? null),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ---------------------------------------------------------------- 取りこぼし一覧
 
 export interface CollectionGap {

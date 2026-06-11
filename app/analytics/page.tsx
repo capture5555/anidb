@@ -42,8 +42,10 @@ import {
   getCoverageStats,
   getRecentJobs,
   getCollectionGaps,
+  getAllSyncRuns,
   type CollectionJob,
   type CollectionGap,
+  type SyncRunRow,
 } from "@/lib/analytics/collectionHealth";
 import {
   getCohortXBuzz,
@@ -1980,7 +1982,7 @@ function StaffBucketCard({
 /* ================================================================ 収集状況 */
 
 async function CollectionSection() {
-  const [coverage, jobs, gaps] = await Promise.all([
+  const [coverage, jobs, gaps, syncRuns] = await Promise.all([
     getCoverageStats().catch(() => ({
       total: 0,
       collected: 0,
@@ -1991,6 +1993,7 @@ async function CollectionSection() {
     })),
     getRecentJobs(12).catch(() => [] as CollectionJob[]),
     getCollectionGaps(30).catch(() => [] as CollectionGap[]),
+    getAllSyncRuns(30).catch(() => [] as SyncRunRow[]),
   ]);
 
   const segments = [
@@ -2153,6 +2156,60 @@ async function CollectionSection() {
         )}
       </section>
 
+      {/* 自動アクションの実行履歴 */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">自動アクションの実行履歴</h2>
+        <p className="text-xs text-muted mb-4">
+          全バックグラウンドジョブの直近30件の実行記録。種別・時刻(JST)・状態・件数・概要を一覧表示します。
+        </p>
+        {syncRuns.length === 0 ? (
+          <p className="text-sm text-muted">実行記録がまだありません。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm border-collapse">
+              <thead>
+                <tr className="text-xs text-muted border-b border-line">
+                  <th className="text-left font-bold py-2 pr-3 w-32">実行時刻</th>
+                  <th className="text-left font-bold py-2 pr-3">種別</th>
+                  <th className="text-center font-bold py-2 px-1 w-16">状態</th>
+                  <th className="text-center font-bold py-2 px-1 w-14">作成</th>
+                  <th className="text-center font-bold py-2 px-1 w-14">更新</th>
+                  <th className="text-center font-bold py-2 px-1 w-14">エラー</th>
+                  <th className="text-left font-bold py-2 pl-2">概要</th>
+                </tr>
+              </thead>
+              <tbody>
+                {syncRuns.map((r) => (
+                  <tr key={r.id} className="border-b border-line/60 hover:bg-paper/60">
+                    <td className="py-2 pr-3 text-xs text-ink-soft tabular-nums whitespace-nowrap">
+                      {r.finishedAt ? formatAirShort(r.finishedAt) : r.startedAt ? formatAirShort(r.startedAt) : "—"}
+                    </td>
+                    <td className="py-2 pr-3 text-xs font-medium text-ink whitespace-nowrap">
+                      {r.jobLabel}
+                    </td>
+                    <td className="py-2 px-1 text-center">
+                      <SyncStatusChip status={r.status} />
+                    </td>
+                    <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">
+                      {r.created > 0 ? r.created.toLocaleString() : "—"}
+                    </td>
+                    <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">
+                      {r.updated > 0 ? r.updated.toLocaleString() : "—"}
+                    </td>
+                    <td className={`py-2 px-1 text-center tabular-nums text-xs font-bold ${r.errors > 0 ? "text-accent" : "text-muted"}`}>
+                      {r.errors > 0 ? r.errors.toLocaleString() : "—"}
+                    </td>
+                    <td className="py-2 pl-2 text-xs text-muted truncate max-w-[220px]" title={r.note ?? undefined}>
+                      {r.note ? r.note.slice(0, 80) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {/* 自動更新スケジュール（各cronの実行頻度メモ） */}
       <UpdateScheduleCard />
 
@@ -2203,6 +2260,22 @@ function UpdateScheduleCard() {
         </table>
       </div>
     </section>
+  );
+}
+
+function SyncStatusChip({ status }: { status: string | null }) {
+  const cls =
+    status === "ok"
+      ? "bg-emerald-100 text-emerald-700"
+      : status === "partial"
+        ? "bg-amber-100 text-amber-700"
+        : status === "error"
+          ? "bg-rose-100 text-rose-700"
+          : "bg-paper text-muted border border-line";
+  return (
+    <span className={`inline-block text-[0.66rem] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${cls}`}>
+      {status ?? "—"}
+    </span>
   );
 }
 

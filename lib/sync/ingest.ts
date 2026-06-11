@@ -61,15 +61,19 @@ export async function ingestSeason(
     );
   }
 
-  await db.from("sync_runs").insert({
-    started_at: new Date().toISOString(),
-    finished_at: new Date().toISOString(),
-    status: result.errors === 0 ? "ok" : "partial",
-    created_count: result.works,
-    updated_count: result.programs,
-    error_count: result.errors,
-    note: `ingest season=${seasonSlug}`,
-  });
+  try {
+    await db.from("sync_runs").insert({
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      status: result.errors === 0 ? "ok" : "partial",
+      created_count: result.works,
+      updated_count: result.programs,
+      error_count: result.errors,
+      note: `ingest season=${seasonSlug} works=${result.works} programs=${result.programs}`,
+    });
+  } catch {
+    /* sync_runs 記録の失敗はジョブ本体に影響させない */
+  }
 
   return result;
 }

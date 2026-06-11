@@ -33,6 +33,7 @@ async function main() {
   }
 
   const db = getAdminClient();
+  const startedAt = new Date().toISOString();
   let totalUpdated = 0;
   for (const season of seasons) {
     console.log(`Annictから ${season} を取得中…`);
@@ -50,6 +51,20 @@ async function main() {
     totalUpdated += updated;
   }
   console.log(`完了: 合計 ${totalUpdated} 件の popularity を更新`);
+
+  try {
+    await db.from("sync_runs").insert({
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      status: "ok",
+      created_count: 0,
+      updated_count: totalUpdated,
+      error_count: 0,
+      note: `enrich-popularity updated=${totalUpdated} seasons=${seasons.join(",")}`,
+    });
+  } catch {
+    /* sync_runs 記録の失敗はジョブ本体に影響させない */
+  }
 }
 
 main().then(

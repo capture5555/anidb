@@ -109,15 +109,19 @@ export async function collectAnnictStats(): Promise<CollectStatsResult> {
     }
   }
 
-  await db.from("sync_runs").insert({
-    started_at: new Date().toISOString(),
-    finished_at: new Date().toISOString(),
-    status: "ok",
-    created_count: result.episodeStats,
-    updated_count: result.workStats,
-    error_count: 0,
-    note: `collect-annict-stats seasons=${targets.join(",")} date=${snapshotDate}`,
-  });
+  try {
+    await db.from("sync_runs").insert({
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      status: "ok",
+      created_count: result.episodeStats,
+      updated_count: result.workStats,
+      error_count: 0,
+      note: `collect-annict-stats seasons=${targets.join(",")} date=${snapshotDate}`,
+    });
+  } catch {
+    /* sync_runs 記録の失敗はジョブ本体に影響させない */
+  }
 
   return result;
 }
