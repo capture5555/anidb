@@ -9,7 +9,9 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { SubscribeButton } from "@/components/SubscribeButton";
 import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
 import { CohortPositionPanel } from "@/components/charts/CohortPositionPanel";
+import { XBuzzSection } from "@/components/charts/XBuzzSection";
 import { getWorkAnalysis } from "@/lib/analytics/viewing";
+import { getWorkXBuzz, getWorkXPosts } from "@/lib/analytics/xbuzz";
 import { getCohortReactionAverage } from "@/lib/analytics/reactionFingerprint";
 import { getWorkCohortPosition } from "@/lib/analytics/scorecard";
 import { formatSeason } from "@/lib/season";
@@ -64,7 +66,7 @@ export default async function WorkDetailPage({
   ).size;
 
   // 3本の重い取得を並列化（互いに依存しない）。各々のフォールバックは従来どおり。
-  const [analysis, cohortReaction, cohort] = await Promise.all([
+  const [analysis, cohortReaction, cohort, xbuzz, xposts] = await Promise.all([
     // 視聴分析データ（実況の盛り上がり・継続率・全話）。seedモード等では黙ってスキップ
     getWorkAnalysis(id).catch(() => null),
     // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
@@ -73,6 +75,10 @@ export default async function WorkDetailPage({
       .catch(() => undefined),
     // クール内ポジション（偏差値カルテ）。母数に入らなければ null
     getWorkCohortPosition(id).catch(() => null),
+    // X(Twitter) バズ（Grok x_search 分析）。未蓄積・失敗は null
+    getWorkXBuzz(id).catch(() => null),
+    // X 実ポストのサンプル。未蓄積・失敗は []
+    getWorkXPosts(id).catch(() => []),
   ]);
 
   return (
@@ -183,6 +189,9 @@ export default async function WorkDetailPage({
               <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
             </div>
           )}
+
+          {/* Xの反応（X Premium・x_search）。X データが無ければ自動で非表示 */}
+          <XBuzzSection buzz={xbuzz} posts={xposts} />
 
           {/* エピソード */}
           {work.episodes.length > 0 && (
