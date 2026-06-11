@@ -1,4 +1,7 @@
-export const dynamic = "force-dynamic";
+// No cookies or headers are read on this page — only params (work id).
+// Switching from force-dynamic to ISR: Workers serves cached HTML per work id,
+// regenerated every 30 minutes so data stays reasonably fresh without a DB hit on every request.
+export const revalidate = 1800;
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
