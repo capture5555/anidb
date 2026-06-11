@@ -10,6 +10,7 @@
 import type { WorkXBuzz } from "@/lib/analytics/xbuzz";
 import { xBuzzSectionComment } from "@/lib/analytics/sectionComments";
 import { SectionNote } from "./WorkAnalysisSections";
+import { EpisodeBuzzSelector } from "./EpisodeBuzzSelector";
 
 interface XBuzzPost {
   statusId: string;
@@ -542,12 +543,12 @@ export function XBuzzSection({
   const episodes = buzz?.episodes ?? [];
 
   // 実ポストを episode_id ごとにまとめ、話数別の代表ポスト表示に使う。
-  const postsByEpisode = new Map<string, XBuzzPost[]>();
+  // クライアントコンポーネントへ渡すため Map ではなく Record を使う（Map はシリアライズ不可）。
+  const postsByEpisode: Record<string, XBuzzPost[]> = {};
   for (const p of posts) {
     if (!p.episodeId) continue;
-    const arr = postsByEpisode.get(p.episodeId);
-    if (arr) arr.push(p);
-    else postsByEpisode.set(p.episodeId, [p]);
+    if (!postsByEpisode[p.episodeId]) postsByEpisode[p.episodeId] = [];
+    postsByEpisode[p.episodeId].push(p);
   }
 
   return (
@@ -606,11 +607,11 @@ export function XBuzzSection({
         </div>
       )}
 
-      {/* 話ごとの評価（話数別の盛り上がり一覧 ＋ 各話の声） */}
+      {/* 話ごとの評価（話数ピルで選択 → 1話分の volume/sentiment/topics/AI所感/投稿一覧） */}
       {episodes.length > 0 && (
         <div className="mb-5">
           <h3 className="text-xs font-bold text-muted mb-2">話ごとの評価</h3>
-          <EpisodeBuzzList episodes={episodes} postsByEpisode={postsByEpisode} />
+          <EpisodeBuzzSelector episodes={episodes} postsByEpisode={postsByEpisode} />
         </div>
       )}
 
