@@ -63,14 +63,17 @@ export default async function WorkDetailPage({
     work.programs.filter((p) => p.channelName).map((p) => p.channelName),
   ).size;
 
-  // 視聴分析データ（実況の盛り上がり・継続率・全話）。seedモード等では黙ってスキップ
-  const analysis = await getWorkAnalysis(id).catch(() => null);
-  // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
-  const cohortReaction = await getCohortReactionAverage()
-    .then((r) => r.shares)
-    .catch(() => undefined);
-  // クール内ポジション（偏差値カルテ）。母数に入らなければ null
-  const cohort = await getWorkCohortPosition(id).catch(() => null);
+  // 3本の重い取得を並列化（互いに依存しない）。各々のフォールバックは従来どおり。
+  const [analysis, cohortReaction, cohort] = await Promise.all([
+    // 視聴分析データ（実況の盛り上がり・継続率・全話）。seedモード等では黙ってスキップ
+    getWorkAnalysis(id).catch(() => null),
+    // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
+    getCohortReactionAverage()
+      .then((r) => r.shares)
+      .catch(() => undefined),
+    // クール内ポジション（偏差値カルテ）。母数に入らなければ null
+    getWorkCohortPosition(id).catch(() => null),
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">

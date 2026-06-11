@@ -1,0 +1,32 @@
+# 解析スナップショットを30分おきに事前計算する。
+# 解析ページ（クール診断・スタジオ/人材スコアカード・ジャンル動向・視聴分析など）は
+# 重い全件集計を毎リクエストで走らせていたため遅かった。このジョブが集計を事前計算して
+# analytics_snapshots テーブルに保存し、ページはそれを読むだけにすることで高速化する。
+# 冪等（upsert）なので重複実行してもよい。
+# 必要な GitHub Secrets: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+name: cron-snapshots
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # 30分おき
+  workflow_dispatch:
+
+concurrency:
+  group: cron-snapshots
+  cancel-in-progress: false
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run compute-snapshots
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

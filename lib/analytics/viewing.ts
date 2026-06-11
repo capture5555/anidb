@@ -6,6 +6,8 @@
  */
 import { getAdminClient } from "../supabase/admin.ts";
 import type { ReactionCategory } from "./commentAnalysis.ts";
+import { memoizeTTL } from "../cache.ts";
+import { fromSnapshotOrLive } from "./snapshots.ts";
 
 type Db = ReturnType<typeof getAdminClient>;
 
@@ -42,7 +44,7 @@ export interface RetentionResult {
  * 直近に放送されたばかりの話は記録が伸び途中で誤解を招くため、
  * スナップショット時点で放送から4日未満の話は除外する。
  */
-export async function getRetentionSeries(limit = 8): Promise<RetentionResult> {
+export async function getRetentionSeriesLive(limit = 8): Promise<RetentionResult> {
   const db = getAdminClient();
 
   const { data: latest } = await db
@@ -121,11 +123,29 @@ export async function getRetentionSeries(limit = 8): Promise<RetentionResult> {
   return { snapshotDate, series: series.slice(0, limit) };
 }
 
+/** Annict 記録数カーブの LIVE 計算（limit 単位で30分メモ化）。 */
+const getRetentionSeriesMemo = memoizeTTL(
+  getRetentionSeriesLive,
+  (limit = 8) => `retention:${limit}`,
+  1800000,
+);
+
+/**
+ * 今期人気上位作品の「話数別 記録数カーブ」。エクスポート名・挙動は従来どおり。
+ * デフォルト引数（limit=8, ページが使う呼び出し）のときだけ事前計算スナップショット
+ * ("annict_retention") を読み、無ければ LIVE 計算へフォールバック。
+ * 非デフォルト引数のときは LIVE 計算する。
+ */
+export function getRetentionSeries(limit = 8): Promise<RetentionResult> {
+  if (limit !== 8) return getRetentionSeriesMemo(limit);
+  return fromSnapshotOrLive("annict_retention", () => getRetentionSeriesMemo(limit));
+}
+
 /**
  * 実況コメント数ベースの「話数別カーブ」。
  * 同じ話が複数チャンネルで収集されている場合は最大コメント数のチャンネルを代表にする。
  */
-export async function getJikkyoRetentionSeries(limit = 8): Promise<RetentionResult> {
+export async function getJikkyoRetentionSeriesLive(limit = 8): Promise<RetentionResult> {
   const db = getAdminClient();
 
   // ページネーションで全件取得（limit 打ち切りによるサイレント欠損を防ぐ）
@@ -194,6 +214,23 @@ export async function getJikkyoRetentionSeries(limit = 8): Promise<RetentionResu
 
   series.sort((a, b) => b.popularity - a.popularity);
   return { snapshotDate: null, series: series.slice(0, limit) };
+}
+
+/** 実況コメント数カーブの LIVE 計算（limit 単位で30分メモ化）。 */
+const getJikkyoRetentionSeriesMemo = memoizeTTL(
+  getJikkyoRetentionSeriesLive,
+  (limit = 8) => `jikkyo:${limit}`,
+  1800000,
+);
+
+/**
+ * 実況コメント数ベースの「話数別カーブ」。エクスポート名・挙動は従来どおり。
+ * デフォルト引数（limit=8）のときだけ事前計算スナップショット("jikkyo_retention")を読み、
+ * 無ければ LIVE 計算へフォールバック。非デフォルト引数のときは LIVE 計算する。
+ */
+export function getJikkyoRetentionSeries(limit = 8): Promise<RetentionResult> {
+  if (limit !== 8) return getJikkyoRetentionSeriesMemo(limit);
+  return fromSnapshotOrLive("jikkyo_retention", () => getJikkyoRetentionSeriesMemo(limit));
 }
 
 // ---------------------------------------------------------------- 盛り上がり
@@ -332,8 +369,8 @@ export interface ReactionRatioWork {
   ratios: Partial<Record<ReactionCategory, number>>;
 }
 
-/** 作品ごとのリアクション構成比（笑い率・感動率・作画注目率ランキング用） */
-export async function getReactionRatios(minComments = 1000): Promise<ReactionRatioWork[]> {
+/** 作品ごとのリアクション構成比（笑い率・感動率・作画注目率ランキング用）の LIVE 計算。 */
+export async function getReactionRatiosLive(minComments = 1000): Promise<ReactionRatioWork[]> {
   const db = getAdminClient();
 
   // 収集済み番組の総コメント数（ページネーションで全件取得）
@@ -410,6 +447,23 @@ export async function getReactionRatios(minComments = 1000): Promise<ReactionRat
   return out;
 }
 
+/** リアクション構成比の LIVE 計算（minComments 単位で30分メモ化）。 */
+const getReactionRatiosMemo = memoizeTTL(
+  getReactionRatiosLive,
+  (minComments = 1000) => `reactratio:${minComments}`,
+  1800000,
+);
+
+/**
+ * 作品ごとのリアクション構成比。エクスポート名・挙動は従来どおり。
+ * デフォルト引数（minComments=1000）のときだけ事前計算スナップショット("reaction_ratios")を読み、
+ * 無ければ LIVE 計算へフォールバック。非デフォルト引数のときは LIVE 計算する。
+ */
+export function getReactionRatios(minComments = 1000): Promise<ReactionRatioWork[]> {
+  if (minComments !== 1000) return getReactionRatiosMemo(minComments);
+  return fromSnapshotOrLive("reaction_ratios", () => getReactionRatiosMemo(minComments));
+}
+
 // ---------------------------------------------------------------- 瞬間最大風速
 
 export interface PeakMoment {
@@ -425,8 +479,8 @@ export interface PeakMoment {
   topComments: { text: string; count: number }[];
 }
 
-/** 瞬間最大風速ランキング（1分あたり最大コメント数）。 */
-export async function getPeakMoments(limit = 10): Promise<PeakMoment[]> {
+/** 瞬間最大風速ランキング（1分あたり最大コメント数）の LIVE 計算。 */
+export async function getPeakMomentsLive(limit = 10): Promise<PeakMoment[]> {
   const db = getAdminClient();
 
   // 番組ごとの最大分を集計（全行ページング）
@@ -497,6 +551,23 @@ export async function getPeakMoments(limit = 10): Promise<PeakMoment[]> {
     r.topComments = (peakMap.get(`${r.programId}:${r.minute}`) ?? []).slice(0, 3);
   }
   return ranked;
+}
+
+/** 瞬間最大風速ランキングの LIVE 計算（limit 単位で30分メモ化）。 */
+const getPeakMomentsMemo = memoizeTTL(
+  getPeakMomentsLive,
+  (limit = 10) => `peak:${limit}`,
+  1800000,
+);
+
+/**
+ * 瞬間最大風速ランキング。エクスポート名・挙動は従来どおり。
+ * デフォルト引数（limit=10）のときだけ事前計算スナップショット("peak_moments")を読み、
+ * 無ければ LIVE 計算へフォールバック。非デフォルト引数のときは LIVE 計算する。
+ */
+export function getPeakMoments(limit = 10): Promise<PeakMoment[]> {
+  if (limit !== 10) return getPeakMomentsMemo(limit);
+  return fromSnapshotOrLive("peak_moments", () => getPeakMomentsMemo(limit));
 }
 
 // ---------------------------------------------------------------- 作品別分析

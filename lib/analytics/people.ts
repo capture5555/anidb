@@ -18,6 +18,7 @@ import {
   battingAverage,
 } from "./studios.ts";
 import { memoizeTTL } from "../cache.ts";
+import { fromSnapshotOrLive } from "./snapshots.ts";
 
 /* ================================================================
    純関数（単体テスト可）
@@ -169,7 +170,7 @@ function buildSeasonStats(
  * @param opts.minWorks ノイズフロア（スコア付き作品の下限, デフォルト 3）
  * @param opts.limit    上位N件（leadAvgScore 降順, null は最後）。デフォルト 30。
  */
-async function getVoiceActorScorecardsUncached(opts?: {
+export async function getVoiceActorScorecardsUncached(opts?: {
   minWorks?: number;
   limit?: number;
 }): Promise<VaScorecard[]> {
@@ -312,15 +313,28 @@ async function getVoiceActorScorecardsUncached(opts?: {
   return cards.slice(0, limit);
 }
 
-/**
- * 声優スコアカード（opts 単位で30分メモ化）。エクスポート名・挙動は従来どおり。
- * 全 work_casts × works を走査する重い集計をキャッシュする。
- */
-export const getVoiceActorScorecards = memoizeTTL(
+/** 声優スコアカードの LIVE 計算（opts 単位で30分メモ化）。 */
+const getVoiceActorScorecardsLive = memoizeTTL(
   getVoiceActorScorecardsUncached,
   (opts) => `va:${opts?.minWorks ?? 3}:${opts?.limit ?? 30}`,
   1800000,
 );
+
+/**
+ * 声優スコアカード。エクスポート名・挙動は従来どおり。
+ * デフォルト opts（minWorks=3, limit=30）のときだけ事前計算スナップショットを使い、
+ * 非デフォルト opts のときは LIVE 計算する。スナップショット欠如時も LIVE へフォールバック。
+ */
+export function getVoiceActorScorecards(opts?: {
+  minWorks?: number;
+  limit?: number;
+}): Promise<VaScorecard[]> {
+  const minWorks = opts?.minWorks ?? 3;
+  const limit = opts?.limit ?? 30;
+  const isDefault = minWorks === 3 && limit === 30;
+  if (!isDefault) return getVoiceActorScorecardsLive(opts);
+  return fromSnapshotOrLive("va_scorecards", () => getVoiceActorScorecardsLive(opts));
+}
 
 /* ================================================================
    スタッフスコアカード
@@ -345,7 +359,7 @@ const ROLE_BUCKETS: RoleBucket[] = [
  *
  * @param opts.limit バケットあたりの上位N件（avgScore 降順）。デフォルト 15。
  */
-async function getStaffScorecardsUncached(opts?: {
+export async function getStaffScorecardsUncached(opts?: {
   limit?: number;
 }): Promise<{ role: StaffRoleKey; label: string; people: StaffScorecard[] }[]> {
   const limit = opts?.limit ?? 15;
@@ -462,12 +476,23 @@ async function getStaffScorecardsUncached(opts?: {
   return result;
 }
 
-/**
- * スタッフスコアカード（opts 単位で30分メモ化）。エクスポート名・挙動は従来どおり。
- * 全 work_staff × works を走査する重い集計をキャッシュする。
- */
-export const getStaffScorecards = memoizeTTL(
+/** スタッフスコアカードの LIVE 計算（opts 単位で30分メモ化）。 */
+const getStaffScorecardsLive = memoizeTTL(
   getStaffScorecardsUncached,
   (opts) => `staff:${opts?.limit ?? 15}`,
   1800000,
 );
+
+/**
+ * スタッフスコアカード。エクスポート名・挙動は従来どおり。
+ * デフォルト opts（limit=15）のときだけ事前計算スナップショットを使い、
+ * 非デフォルト opts のときは LIVE 計算する。スナップショット欠如時も LIVE へフォールバック。
+ */
+export function getStaffScorecards(opts?: {
+  limit?: number;
+}): Promise<{ role: StaffRoleKey; label: string; people: StaffScorecard[] }[]> {
+  const limit = opts?.limit ?? 15;
+  const isDefault = limit === 15;
+  if (!isDefault) return getStaffScorecardsLive(opts);
+  return fromSnapshotOrLive("staff_scorecards", () => getStaffScorecardsLive(opts));
+}
