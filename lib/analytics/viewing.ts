@@ -45,7 +45,7 @@ export interface RetentionResult {
  * 直近に放送されたばかりの話は記録が伸び途中で誤解を招くため、
  * スナップショット時点で放送から4日未満の話は除外する。
  */
-export async function getRetentionSeriesLive(limit = 8): Promise<RetentionResult> {
+export async function getRetentionSeriesLive(limit = 100): Promise<RetentionResult> {
   const db = getAdminClient();
 
   const { data: latest } = await db
@@ -127,7 +127,7 @@ export async function getRetentionSeriesLive(limit = 8): Promise<RetentionResult
 /** Annict 記録数カーブの LIVE 計算（limit 単位で30分メモ化）。 */
 const getRetentionSeriesMemo = memoizeTTL(
   getRetentionSeriesLive,
-  (limit = 8) => `retention:${limit}`,
+  (limit = 100) => `retention:${limit}`,
   1800000,
 );
 
@@ -137,8 +137,8 @@ const getRetentionSeriesMemo = memoizeTTL(
  * ("annict_retention") を読み、無ければ LIVE 計算へフォールバック。
  * 非デフォルト引数のときは LIVE 計算する。
  */
-export function getRetentionSeries(limit = 8): Promise<RetentionResult> {
-  if (limit !== 8) return getRetentionSeriesMemo(limit);
+export function getRetentionSeries(limit = 100): Promise<RetentionResult> {
+  if (limit !== 100) return getRetentionSeriesMemo(limit);
   return fromSnapshotOrLive("annict_retention", () => getRetentionSeriesMemo(limit));
 }
 
@@ -146,7 +146,7 @@ export function getRetentionSeries(limit = 8): Promise<RetentionResult> {
  * 実況コメント数ベースの「話数別カーブ」。
  * 同じ話が複数チャンネルで収集されている場合は最大コメント数のチャンネルを代表にする。
  */
-export async function getJikkyoRetentionSeriesLive(limit = 8): Promise<RetentionResult> {
+export async function getJikkyoRetentionSeriesLive(limit = 100): Promise<RetentionResult> {
   const db = getAdminClient();
 
   // 収集済みログを共有メモ化ヘルパーから取得（同一リクエスト内で他の live 関数と共有）
@@ -209,7 +209,7 @@ export async function getJikkyoRetentionSeriesLive(limit = 8): Promise<Retention
 /** 実況コメント数カーブの LIVE 計算（limit 単位で30分メモ化）。 */
 const getJikkyoRetentionSeriesMemo = memoizeTTL(
   getJikkyoRetentionSeriesLive,
-  (limit = 8) => `jikkyo:${limit}`,
+  (limit = 100) => `jikkyo:${limit}`,
   1800000,
 );
 
@@ -218,8 +218,8 @@ const getJikkyoRetentionSeriesMemo = memoizeTTL(
  * デフォルト引数（limit=8）のときだけ事前計算スナップショット("jikkyo_retention")を読み、
  * 無ければ LIVE 計算へフォールバック。非デフォルト引数のときは LIVE 計算する。
  */
-export function getJikkyoRetentionSeries(limit = 8): Promise<RetentionResult> {
-  if (limit !== 8) return getJikkyoRetentionSeriesMemo(limit);
+export function getJikkyoRetentionSeries(limit = 100): Promise<RetentionResult> {
+  if (limit !== 100) return getJikkyoRetentionSeriesMemo(limit);
   return fromSnapshotOrLive("jikkyo_retention", () => getJikkyoRetentionSeriesMemo(limit));
 }
 

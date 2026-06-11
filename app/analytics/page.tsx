@@ -200,8 +200,8 @@ export default async function AnalyticsPage({
 async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
   const [retention, hot, peaks, ratios, timeslots] = await Promise.all([
     basis === "annict"
-      ? getRetentionSeries(8).catch(() => ({ snapshotDate: null, series: [] }))
-      : getJikkyoRetentionSeries(8).catch(() => ({ snapshotDate: null, series: [] })),
+      ? getRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] }))
+      : getJikkyoRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] })),
     getHotPrograms(6, 14).catch(() => []),
     getPeakMoments(10).catch(() => []),
     getReactionRatios(1000).catch(() => []),
@@ -250,20 +250,25 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
           )}
         </p>
         <SectionNote text={retentionSeriesComment(retention.series)} />
-        <RetentionChart series={retention.series} />
+        <RetentionChart series={retention.series.slice(0, 12)} />
       </section>
 
       {/* クール残留カーブ一覧（small multiples） */}
       {retention.series.length > 0 && (
         <section className="card p-5 sm:p-6">
-          <h2 className="section-title text-lg mb-1">クール残留カーブ一覧</h2>
+          <h2 className="section-title text-lg mb-1">
+            クール残留カーブ一覧
+            <span className="ml-2 text-xs font-normal text-muted tabular-nums">
+              {retention.series.length}作品
+            </span>
+          </h2>
           <p className="text-xs text-muted mb-4">
-            今期人気作の残留率カーブを一覧で並べたミニグラフ。1話を100%としたときの推移を作品横断でひと目で比較できます。
+            今期シーズンの全作品（2話以上データあり）の残留率カーブをまとめて表示。1話を100%としたときの推移を作品横断で比較できます。
             右端の数値は最新話の残留率。母数は
             {basis === "annict" ? "Annictの記録ユーザー" : "ニコニコ実況のコメント"}（テレビ視聴率ではありません）。
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {retention.series.slice(0, 16).map((s) => (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {retention.series.map((s) => (
               <RetentionMiniCard
                 key={s.workId}
                 workId={s.workId}
