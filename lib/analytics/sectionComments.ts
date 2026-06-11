@@ -9,6 +9,7 @@ import type { WorkAnalysis, RetentionSeries, PeakMoment, ReactionRatioWork } fro
 import type { WorkReactionBreakdown } from "./workReactions.ts";
 import type { ReactionCategory } from "./commentAnalysis.ts";
 import type { CohortXBuzz, XBuzzVsJikkyo, EpisodeBuzzLeader, XTopicLeader } from "./xbuzz.ts";
+import type { OverallRankingRow } from "./overallRanking.ts";
 
 const REACTION_LABEL: Record<ReactionCategory, string> = {
   laugh: "笑い",
@@ -282,4 +283,33 @@ export function topicsComment(topics: XTopicLeader[]): string | null {
   const crossCount = topics.filter((t) => t.count >= 2).length;
   const crossNote = crossCount > 0 ? `複数作品またがりワードが${crossCount}語` : `${topics.length}語が集計中`;
   return `最多話題は「${top.topic}」（${top.count}作品）。${crossNote}。`;
+}
+
+/**
+ * 総合ランキングセクションのメモ（分析ハブ用）。
+ * 1位の作品と、どのシグナルが突出しているかを述べる短文を返す。
+ * データが空または1位が確定しない場合は null。
+ */
+export function overallRankingComment(rows: OverallRankingRow[]): string | null {
+  if (rows.length === 0) return null;
+  const top = rows[0];
+
+  // 突出しているシグナル（パーセンタイル >= 80）を探す
+  const strong: string[] = [];
+  const sigs = top.signals;
+  if ((sigs.jikkyo ?? 0) >= 80) strong.push("実況");
+  if ((sigs.xbuzz ?? 0) >= 80) strong.push("X");
+  if ((sigs.awareness ?? 0) >= 80) strong.push("認知");
+  if ((sigs.review ?? 0) >= 80) strong.push("批評");
+  if ((sigs.retention ?? 0) >= 80) strong.push("継続/満足");
+
+  const scoreNote = `（総合スコア ${top.score.toFixed(0)}点）`;
+
+  if (strong.length >= 2) {
+    return `総合1位は『${top.title}』${scoreNote}。${strong.join("と")}の両方で突出。`;
+  }
+  if (strong.length === 1) {
+    return `総合1位は『${top.title}』${scoreNote}。特に${strong[0]}シグナルが強い。`;
+  }
+  return `総合1位は『${top.title}』${scoreNote}。複数シグナルをバランスよく積み上げた。`;
 }

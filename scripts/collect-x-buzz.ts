@@ -45,6 +45,7 @@ import { seasonOf, formatSeason } from "../lib/season.ts";
 import { writeSnapshot } from "../lib/analytics/snapshots.ts";
 import { cleanXSummary } from "../lib/analytics/xbuzz.ts";
 import { SEASON_COMMENT_KEY } from "../lib/analytics/seasonComment.ts";
+import { recordAiComment } from "../lib/analytics/aiComments.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -207,6 +208,14 @@ async function generateSeasonComment(
     generatedAt: new Date().toISOString(),
     label,
   });
+  // 履歴にも残す（ai_comments テーブル。失敗は無視される）。
+  await recordAiComment({
+    scope: "season",
+    refId: label,
+    title: `${label}の所感`,
+    body: text.slice(0, 1000),
+    meta: {},
+  });
   console.log(`[collect-x-buzz] 所感を保存しました (${label}, ${text.length}字)`);
 }
 
@@ -351,6 +360,22 @@ async function main() {
       } else {
         inserted++;
         console.log(`[collect-x-buzz] ok: ${w.title} volume=${buzz.volume_score}`);
+        // 作品の声を履歴にも残す（summary がある場合のみ。失敗は無視される）。
+        if (buzz.summary) {
+          const cleanBody = cleanXSummary(buzz.summary);
+          if (cleanBody) {
+            await recordAiComment({
+              scope: "work",
+              refId: w.id,
+              title: w.title,
+              body: cleanBody,
+              meta: {
+                volume: buzz.volume_score,
+                sentiment: buzz.sentiment,
+              },
+            });
+          }
+        }
       }
 
       // 生ポストの harvest（Mode B のみ raw が乗る。テーブル未作成なら穏当にスキップ）。
