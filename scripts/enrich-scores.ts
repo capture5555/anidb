@@ -24,6 +24,7 @@ import { getAdminClient } from "../lib/supabase/admin.ts";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
+  const startedAt = new Date().toISOString();
   const args = process.argv.slice(2);
   const force = args.includes("force");
   const year = args.find((a) => /^\d{4}$/.test(a));
@@ -120,6 +121,20 @@ async function main() {
     await sleep(2000); // AniListレート制限に配慮
   }
   console.log(`\n完了: 今回 ${ok} 件にスコアを設定`);
+
+  try {
+    await db.from("sync_runs").insert({
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      status: "ok",
+      created_count: ok,
+      updated_count: todo.length - ok,
+      error_count: 0,
+      note: `enrich-scores updated=${ok} todo=${todo.length}${year ? ` year=${year}` : ""}`,
+    });
+  } catch {
+    /* sync_runs 記録の失敗はジョブ本体に影響させない */
+  }
 }
 
 main().then(

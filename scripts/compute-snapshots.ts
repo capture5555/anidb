@@ -66,10 +66,10 @@ const UNITS: Unit[] = [
   { key: "franchise_momentum", compute: getFranchiseMomentumUncached, count: (r) => r?.length ?? 0 },
   { key: "cohort_reaction", compute: getCohortReactionAverageUncached, count: (r) => r?.basis ?? 0 },
   { key: "reaction_ratios", compute: () => getReactionRatiosLive(1000), count: (r) => r?.length ?? 0 },
-  { key: "jikkyo_retention", compute: () => getJikkyoRetentionSeriesLive(8), count: (r) => r?.series?.length ?? 0 },
+  { key: "jikkyo_retention", compute: () => getJikkyoRetentionSeriesLive(100), count: (r) => r?.series?.length ?? 0 },
   { key: "peak_moments", compute: () => getPeakMomentsLive(10), count: (r) => r?.length ?? 0 },
   { key: "hot_programs", compute: () => getHotProgramsLive(6, 14), count: (r) => r?.length ?? 0 },
-  { key: "annict_retention", compute: () => getRetentionSeriesLive(8), count: (r) => r?.series?.length ?? 0 },
+  { key: "annict_retention", compute: () => getRetentionSeriesLive(100), count: (r) => r?.series?.length ?? 0 },
   { key: "timeslot_heatmap", compute: getTimeslotHeatmapUncached, count: (r) => r?.cells?.length ?? 0 },
   { key: "x_cohort_buzz", compute: () => getCohortXBuzzForSnapshot(20), count: (r) => r?.length ?? 0 },
 ];
@@ -138,6 +138,7 @@ async function computeWorkAnalysisSnapshots(): Promise<void> {
 }
 
 async function main() {
+  const startedAt = new Date().toISOString();
   // 全ユニットを並列実行（互いに独立。各々が個別に try/catch される）。
   const results = await Promise.all(UNITS.map(runUnit));
 
@@ -147,6 +148,23 @@ async function main() {
   const failed = results.filter((r) => !r.ok);
   console.log(`compute-snapshots done: ${ok}/${results.length} succeeded` +
     (failed.length ? `, failed=[${failed.map((f) => f.key).join(", ")}]` : ""));
+
+  try {
+    const db = getAdminClient();
+    await db.from("sync_runs").insert({
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+      status: ok === results.length ? "ok" : ok > 0 ? "partial" : "error",
+      created_count: ok,
+      updated_count: 0,
+      error_count: failed.length,
+      note: `compute-snapshots ok=${ok}/${results.length}` +
+        (failed.length ? ` failed=[${failed.map((f) => f.key).join(",")}]` : ""),
+    });
+  } catch {
+    /* sync_runs 記録の失敗はジョブ本体に影響させない */
+  }
+
   // 1つでも成功していれば 0、全滅のときだけ 1（部分失敗で cron を赤くしない）。
   process.exit(ok > 0 ? 0 : 1);
 }

@@ -196,7 +196,14 @@ export default async function WorkDetailPage({
                 {work.casts.map((c) => (
                   <div key={c.id} className="rule-row flex justify-between gap-3 py-2.5">
                     <dt className="text-[0.9rem] font-medium text-ink">{c.characterName}</dt>
-                    <dd className="text-[0.9rem] text-ink-soft text-right">{c.personName}</dd>
+                    <dd className="text-[0.9rem] text-ink-soft text-right">
+                      <Link
+                        href={`/analytics/people/va/${encodeURIComponent(c.personName)}`}
+                        className="hover:text-primary hover:underline underline-offset-2"
+                      >
+                        {c.personName}
+                      </Link>
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -211,7 +218,14 @@ export default async function WorkDetailPage({
                 {work.staff.map((s) => (
                   <div key={s.id} className="rule-row flex gap-4 py-2.5">
                     <dt className="text-[0.8rem] text-muted w-40 shrink-0">{s.role}</dt>
-                    <dd className="text-[0.9rem] text-ink-soft">{s.personName}</dd>
+                    <dd className="text-[0.9rem] text-ink-soft">
+                      <Link
+                        href={`/analytics/people/staff/${encodeURIComponent(s.personName)}`}
+                        className="hover:text-primary hover:underline underline-offset-2"
+                      >
+                        {s.personName}
+                      </Link>
+                    </dd>
                   </div>
                 ))}
               </dl>
