@@ -647,6 +647,75 @@ export function sequelProspectComment(rows: SequelProspectRow[]): string | null 
 }
 
 /**
+ * 総合スコアの根拠説明（作品詳細ページ KPI 直下表示用）。
+ *
+ * 当該作品の OverallRankingRow.signals から、最も寄与している上位1〜2シグナルと
+ * 足を引っ張っている弱いシグナルを名指しし、スコアの透明性を高める短文を返す。
+ * データが null または有効シグナルが存在しない場合は null を返す（防御的）。
+ *
+ * 閾値:
+ *   - 上位シグナル: パーセンタイル >= 70（「牽引」と表現）
+ *   - 弱いシグナル: パーセンタイル <= 35（「やや弱め」と表現）
+ */
+export function scoreReason(row: OverallRankingRow | null): string | null {
+  if (row == null) return null;
+
+  const sigs = row.signals;
+
+  // シグナルラベルマップ
+  const sigLabels: Array<{ key: keyof typeof sigs; label: string }> = [
+    { key: "awareness", label: "認知" },
+    { key: "review",    label: "批評" },
+    { key: "jikkyo",    label: "実況" },
+    { key: "xbuzz",     label: "Xバズ" },
+    { key: "retention", label: "継続/満足" },
+  ];
+
+  // 有効なシグナルのみ抽出
+  const present = sigLabels
+    .map(({ key, label }) => ({ label, pct: sigs[key] }))
+    .filter((s): s is { label: string; pct: number } => s.pct != null);
+
+  // データが無い場合は非表示
+  if (present.length === 0) return null;
+
+  // 上位シグナル（強い牽引）: パーセンタイル >= 70、降順で最大2件
+  const strong = present
+    .filter((s) => s.pct >= 70)
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 2);
+
+  // 弱いシグナル（足引き）: パーセンタイル <= 35、昇順で最大1件
+  const weak = present
+    .filter((s) => s.pct <= 35)
+    .sort((a, b) => a.pct - b.pct)
+    .slice(0, 1);
+
+  // どちらもなければ「バランス型」で短文
+  if (strong.length === 0 && weak.length === 0) {
+    return `総合スコア ${row.score.toFixed(0)}pt は複数シグナルをバランスよく積み上げた結果です。`;
+  }
+
+  const parts: string[] = [];
+
+  if (strong.length > 0) {
+    const strongStr = strong
+      .map((s) => `${s.label}（上位${Math.round(100 - s.pct)}%）`)
+      .join("と");
+    parts.push(`${strongStr}が牽引`);
+  }
+
+  if (weak.length > 0) {
+    const weakStr = weak
+      .map((s) => `${s.label}（下位${Math.round(s.pct)}%）`)
+      .join("・");
+    parts.push(`${weakStr}はやや弱め`);
+  }
+
+  return `総合スコアは${parts.join("。")}。`;
+}
+
+/**
  * 混雑スロット（競合の多い枠）セクションのひとことメモ。
  * 最も作品数が多いスロットと、2位との差を述べる。
  * データが薄い（2スロット未満・最大2作品以下）場合は null。
