@@ -122,6 +122,7 @@ import { formatPopularity, formatAirShort } from "@/lib/format";
 import { WorkCover } from "@/components/WorkCover";
 import { CsvExportButton } from "@/components/CsvExportButton";
 import type { Season } from "@/lib/types";
+import { genreJa } from "@/lib/genres";
 
 export const metadata = { title: "アニメ分析" };
 
@@ -3836,7 +3837,7 @@ function GenreTrendsCard({
             <tbody>
               {top.map((g) => (
                 <tr key={g.genre} className="border-b border-line/60 hover:bg-paper/60">
-                  <td className="py-2 pr-3 font-medium text-ink">{g.genre}</td>
+                  <td className="py-2 pr-3 font-medium text-ink">{genreJa(g.genre)}</td>
                   <td className="py-2 px-2 text-center tabular-nums text-xs text-ink-soft">
                     {g.worksCount.toLocaleString()}
                   </td>
@@ -3967,11 +3968,11 @@ function GenreOpportunityMapCard({ insights }: { insights: GenreInsight[] }) {
                   strokeWidth={1}
                 >
                   <title>
-                    {`${p.g.genre}: 需要${p.demand} / 供給${p.supply}（平均人気${p.g.avgPopularity.toLocaleString()}・${p.g.worksCount}本）`}
+                    {`${genreJa(p.g.genre)}: 需要${p.demand} / 供給${p.supply}（平均人気${p.g.avgPopularity.toLocaleString()}・${p.g.worksCount}本）`}
                   </title>
                 </circle>
                 <text x={cx + 7} y={cy + 3} fontSize="10" fill="#5a616e">
-                  {p.g.genre}
+                  {genreJa(p.g.genre)}
                 </text>
               </g>
             );
@@ -3992,7 +3993,7 @@ function GenreOpportunityMapCard({ insights }: { insights: GenreInsight[] }) {
                 {i + 1}
               </span>
               <div className="flex-1 min-w-0">
-                <span className="block text-sm font-medium text-ink truncate">{p.g.genre}</span>
+                <span className="block text-sm font-medium text-ink truncate">{genreJa(p.g.genre)}</span>
                 <span className="block text-[0.68rem] text-muted tabular-nums">
                   人気{p.g.avgPopularity.toLocaleString()} / {p.g.worksCount}本
                   {p.g.avgScore != null ? ` / スコア${p.g.avgScore.toFixed(1)}` : ""}

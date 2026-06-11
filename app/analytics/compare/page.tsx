@@ -16,6 +16,7 @@ import {
   getCurrentSeasonWorks,
   type WorkCompareData,
 } from "@/lib/analytics/compareWorks";
+import { genreJa } from "@/lib/genres";
 
 export const metadata: Metadata = { title: "作品比較 | アニメ分析" };
 
@@ -440,7 +441,7 @@ function CompareTable({
                     key={g}
                     className="inline-block text-[0.62rem] px-1.5 py-0.5 rounded-full bg-paper border border-line text-ink-soft"
                   >
-                    {g}
+                    {genreJa(g)}
                   </span>
                 ))}
               </div>

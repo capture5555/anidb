@@ -11,6 +11,7 @@ import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
 import { pickOnePerEpisode } from "@/lib/programs";
 import { parseRegion, REGION_COOKIE } from "@/lib/regions";
+import { genreJa } from "@/lib/genres";
 import {
   parseChannelsCookie,
   seedChannelsFromRegion,
@@ -95,7 +96,7 @@ export default async function WorkDetailPage({
                   key={g}
                   className="text-xs font-medium text-ink-soft bg-paper rounded-full px-3 py-1"
                 >
-                  {g}
+                  {genreJa(g)}
                 </li>
               ))}
             </ul>
