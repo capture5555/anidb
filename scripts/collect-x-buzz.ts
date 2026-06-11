@@ -45,7 +45,7 @@ import { seasonOf, formatSeason } from "../lib/season.ts";
 import { writeSnapshot } from "../lib/analytics/snapshots.ts";
 import { cleanXSummary } from "../lib/analytics/xbuzz.ts";
 import { SEASON_COMMENT_KEY } from "../lib/analytics/seasonComment.ts";
-import { recordAiComment } from "../lib/analytics/aiComments.ts";
+import { recordAiComment, getLatestAiComment } from "../lib/analytics/aiComments.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -217,6 +217,185 @@ async function generateSeasonComment(
     meta: {},
   });
   console.log(`[collect-x-buzz] 所感を保存しました (${label}, ${text.length}字)`);
+}
+
+/**
+ * 現在の JST 日付を "YYYY-MM-DD" 形式で返す純関数。
+ * タイムゾーン変換のみ行うため、いかなる例外も投げない。
+ */
+function todayJst(): string {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(new Date())
+    .replace(/\//g, "-");
+}
+
+/**
+ * x_search の answer（markdown 箇条書き）からニュース items を抽出する純関数。
+ *
+ * 対応フォーマット（すべて許容）:
+ *   - 番号付き: `1. **見出し**\n   要約文`
+ *   - 記号付き: `- **見出し** — 要約文` / `* 見出し：要約`
+ *   - URL: 行末 or 次行の `https://...`
+ *
+ * 失敗・空は [] を返す（防御的）。
+ */
+function parseNewsItems(
+  answer: string,
+): { title: string; summary: string; url?: string }[] {
+  if (!answer) return [];
+  try {
+    const items: { title: string; summary: string; url?: string }[] = [];
+
+    // 行を正規化（CRLF → LF、トリム）して空行で段落分割。
+    const paras = answer
+      .replace(/\r\n/g, "\n")
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    for (const para of paras) {
+      const lines = para.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (lines.length === 0) continue;
+
+      // 1行目から見出しを取り出す。
+      // パターン: `1. **見出し**` / `- **見出し**` / `* 見出し` / `**見出し**` etc.
+      const headLine = lines[0];
+
+      // 行頭の番号/記号を除去。
+      let rawHead = headLine.replace(/^\s*(?:\d+[\.\)。]|[-*•])\s*/, "").trim();
+
+      // URL らしき文字列を末尾から取り出し除去（見出し行にURLが混在する場合）。
+      let urlFromHead: string | undefined;
+      const urlMatch = rawHead.match(/https?:\/\/\S+$/);
+      if (urlMatch) {
+        urlFromHead = urlMatch[0];
+        rawHead = rawHead.slice(0, urlMatch.index).trim();
+      }
+
+      // markdown の強調（**〜**）・コード装飾を外す。
+      rawHead = rawHead
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/__([^_]+)__/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // リンクは表示テキストへ
+        .trim();
+
+      if (!rawHead || rawHead.length < 3) continue; // ゴミ行をスキップ
+
+      // 2行目以降を要約とする。区切り文字（— / : 等）で分割してもよいが、
+      // まず残り行を結合し、次にURLを探す。
+      const restLines = lines.slice(1);
+      let summaryRaw = restLines.join(" ").trim();
+
+      // 1行しかない場合（見出し＋要約が同一行）: `見出し — 要約` / `見出し：要約`
+      if (!summaryRaw) {
+        const sep = rawHead.search(/[—\-–:：]\s/);
+        if (sep > 0) {
+          const parts = rawHead.split(/[—\-–:：]\s(.+)$/);
+          rawHead = parts[0].trim();
+          summaryRaw = (parts[1] ?? "").trim();
+        }
+      }
+
+      // 要約からURLを抽出し除去。
+      let urlFromSummary: string | undefined;
+      const sumUrlMatch = summaryRaw.match(/https?:\/\/\S+/);
+      if (sumUrlMatch) {
+        urlFromSummary = sumUrlMatch[0];
+        summaryRaw = summaryRaw.replace(/https?:\/\/\S+/g, "").trim();
+      }
+
+      // markdown 装飾を要約からも除去。
+      summaryRaw = summaryRaw
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/__([^_]+)__/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/\[\d+(?:\s*,\s*\d+)*\]/g, "")
+        .replace(/\[\[(\d+)\]\]\([^)]*\)/g, "")
+        .trim();
+
+      if (!rawHead) continue;
+
+      const url = urlFromHead ?? urlFromSummary;
+      items.push({
+        title: rawHead,
+        summary: summaryRaw || rawHead,
+        ...(url ? { url } : {}),
+      });
+
+      if (items.length >= 8) break;
+    }
+
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 直近24時間の日本のアニメ業界ニュースを x_search で取得し ai_comments に保存する。
+ *
+ * - 1日1回ガード: 当日(JST) の refId=YYYY-MM-DD の news が既に存在すればスキップ。
+ * - 取得結果を parseNewsItems で解析し、空なら保存スキップ（防御的）。
+ * - 失敗は throw せず、呼び出し側で catch して握りつぶす。
+ */
+async function generateDailyNews(): Promise<void> {
+  const today = todayJst();
+
+  // 1日1回ガード。
+  const existing = await getLatestAiComment("news", today);
+  if (existing) {
+    console.log(`[collect-x-buzz] ニュース: 本日(${today})分は生成済みのためスキップ`);
+    return;
+  }
+
+  const query =
+    `直近24時間の日本のアニメ業界のニュースを検索してください。` +
+    `新作発表・続編決定・放送開始・劇場公開・イベント・配信開始・声優キャスト・受賞など、` +
+    `業界の重要ニュースを最大8件選び、各ニュースを【見出し】と【1行要約】のセットで` +
+    `箇条書きで出力してください。URLがあれば各項目の末尾に添えてください。` +
+    `見出し・要約は日本語のみ。マーカーや余分な装飾は不要です。`;
+
+  const res = await hermesXSearch(query);
+  if (!res?.answer) {
+    console.log("[collect-x-buzz] ニュース: Hermes が空を返したためスキップ");
+    return;
+  }
+
+  const items = parseNewsItems(res.answer);
+  if (items.length === 0) {
+    console.log("[collect-x-buzz] ニュース: items の抽出が空のためスキップ");
+    return;
+  }
+
+  // 概況: answer の最初の段落（箇条書き前の地の文）があれば採用し、なければ空文字。
+  const overviewMatch = res.answer.trim().match(/^([^-*\n\d][^\n]+(?:\n[^-*\n\d][^\n]+)*)/);
+  const overview = overviewMatch
+    ? overviewMatch[1]
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .trim()
+        .slice(0, 300)
+    : "";
+
+  const saved = await recordAiComment({
+    scope: "news",
+    refId: today,
+    title: `${today}のアニメニュース`,
+    body: overview || `${today}のアニメ業界ニュース（${items.length}件）`,
+    meta: { items },
+  });
+
+  if (saved) {
+    console.log(`[collect-x-buzz] ニュース保存完了: ${today} items=${items.length}`);
+  } else {
+    console.warn("[collect-x-buzz] ニュース: recordAiComment が失敗しました（テーブル未作成?）");
+  }
 }
 
 /** Mode A: xAI(Grok) の searchAnimeBuzz で作品のバズを導出する。失敗時は null。 */
@@ -407,6 +586,12 @@ async function main() {
       await generateSeasonComment(year, season);
     } catch (e) {
       console.error("[collect-x-buzz] 所感生成で例外:", e);
+    }
+    // 今日のアニメ業界ニュース（1日1回ガード付き）。
+    try {
+      await generateDailyNews();
+    } catch (e) {
+      console.error("[collect-x-buzz] ニュース生成で例外:", e);
     }
   }
 
