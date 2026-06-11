@@ -15,6 +15,9 @@ import { getWorkXBuzz, getWorkXPosts } from "@/lib/analytics/xbuzz";
 import { WorkCover } from "@/components/WorkCover";
 import { buildEpisodeTriple } from "@/lib/analytics/episodeTriple";
 import { EpisodeTripleChart } from "@/components/charts/EpisodeTripleChart";
+import { getOverallRanking } from "@/lib/analytics/overallRanking";
+import { getFastStart } from "@/lib/analytics/fastStart";
+import { WorkKpiStrip } from "@/components/charts/WorkKpiStrip";
 
 export async function generateMetadata({
   params,
@@ -32,20 +35,34 @@ export default async function WorkAnalyticsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  // 3本の重い取得を並列化（互いに依存しない）。各々のフォールバックは従来どおり。
-  const [analysis, cohort, cohortReaction, xbuzz, xposts] = await Promise.all([
-    getWorkAnalysis(id).catch(() => null),
-    getWorkCohortPosition(id).catch(() => null),
-    // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
-    getCohortReactionAverage()
-      .then((r) => r.shares)
-      .catch(() => undefined),
-    // X(Twitter) バズ（Grok x_search 分析）。未蓄積・失敗は null
-    getWorkXBuzz(id).catch(() => null),
-    // X 実ポストのサンプル。未蓄積・失敗は []
-    getWorkXPosts(id).catch(() => []),
-  ]);
+  // 5本の重い取得を並列化（互いに依存しない）。各々のフォールバックは従来どおり。
+  const [analysis, cohort, cohortReaction, xbuzz, xposts, overallRanking, fastStartRanking] =
+    await Promise.all([
+      getWorkAnalysis(id).catch(() => null),
+      getWorkCohortPosition(id).catch(() => null),
+      // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
+      getCohortReactionAverage()
+        .then((r) => r.shares)
+        .catch(() => undefined),
+      // X(Twitter) バズ（Grok x_search 分析）。未蓄積・失敗は null
+      getWorkXBuzz(id).catch(() => null),
+      // X 実ポストのサンプル。未蓄積・失敗は []
+      getWorkXPosts(id).catch(() => []),
+      // 総合ランキング（KPI カード用）。失敗時は []
+      getOverallRanking().catch((): import("@/lib/analytics/overallRanking").OverallRanking => []),
+      // 初速ランキング（KPI カード用）。失敗時は []
+      getFastStart().catch((): import("@/lib/analytics/fastStart").FastStartRow[] => []),
+    ]);
   if (!analysis) notFound();
+
+  // この作品の行を抽出（見つからなければ null）
+  const overallRow = overallRanking.find((r) => r.workId === id) ?? null;
+  const fastStartRow = fastStartRanking.find((r) => r.workId === id) ?? null;
+  // ランキング内順位は配列がスコア降順で返ってくるので indexOf + 1
+  const overallRank = overallRow != null ? overallRanking.indexOf(overallRow) + 1 : null;
+  const overallTotal = overallRanking.length > 0 ? overallRanking.length : null;
+  const fastStartRank = fastStartRow != null ? fastStartRanking.indexOf(fastStartRow) + 1 : null;
+  const fastStartTotal = fastStartRanking.length > 0 ? fastStartRanking.length : null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -79,6 +96,21 @@ export default async function WorkAnalyticsPage({
           </Link>
         </div>
       </header>
+
+      {/* KPI カードストリップ — 主要 6 指標を一目で把握 */}
+      <div className="mt-3">
+        <WorkKpiStrip
+          analysis={analysis}
+          cohort={cohort}
+          xbuzz={xbuzz}
+          overallRow={overallRow}
+          fastStartRow={fastStartRow}
+          overallRank={overallRank}
+          overallTotal={overallTotal}
+          fastStartRank={fastStartRank}
+          fastStartTotal={fastStartTotal}
+        />
+      </div>
 
       <div className="space-y-5 py-5">
         {/* AIの所感（既存の Grok x_search 「作品の声」を短く再利用）。無ければ非表示。 */}
