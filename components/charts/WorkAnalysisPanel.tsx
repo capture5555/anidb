@@ -7,6 +7,11 @@ import { MinuteHeatChart, type MinutePointInput, type PeakInput } from "./Minute
  * 作品別分析: ①話数別実況コメント数の棒グラフ ②話数を選んで全話の分単位盛り上がりグラフ。
  */
 
+export interface RepresentativeCommentInput {
+  minuteOffset: number;
+  comments: string[];
+}
+
 export interface EpisodeHeatInput {
   programId: string;
   episodeLabel: string;
@@ -15,6 +20,8 @@ export interface EpisodeHeatInput {
   totalComments: number;
   points: MinutePointInput[];
   peaks: PeakInput[];
+  /** ピーク分の代表コメント。スナップショット未更新時は存在しない場合があるため optional。 */
+  representativeComments?: RepresentativeCommentInput[];
 }
 
 function fmtDate(iso: string): string {
@@ -91,23 +98,27 @@ export function EpisodeHeatSelector({ episodes }: { episodes: EpisodeHeatInput[]
     return <p className="text-sm text-muted py-6 text-center">実況データのある放送回がまだありません。</p>;
   }
   const cur = episodes[selected];
+  const repComments = cur.representativeComments ?? [];
 
   return (
     <div>
-      {/* 話数ピル */}
+      {/* 話数ピル（放送日つき） */}
       <div className="flex flex-wrap gap-1.5 mb-4">
         {episodes.map((e, i) => (
           <button
             key={e.programId}
             type="button"
             onClick={() => setSelected(i)}
-            className={`text-xs font-bold px-3 py-1.5 rounded-full transition ${
+            className={`flex flex-col items-center text-xs font-bold px-3 py-1.5 rounded-full transition leading-tight ${
               i === selected
                 ? "bg-accent text-white"
                 : "bg-surface border border-line text-ink-soft hover:border-line-strong"
             }`}
           >
-            {e.episodeLabel}
+            <span>{e.episodeLabel}</span>
+            <span className={`font-normal tabular-nums ${i === selected ? "text-white/80" : "text-muted"}`}>
+              {fmtDate(e.startAt)}
+            </span>
           </button>
         ))}
       </div>
@@ -118,6 +129,33 @@ export function EpisodeHeatSelector({ episodes }: { episodes: EpisodeHeatInput[]
         {cur.totalComments.toLocaleString()}コメント
       </p>
       <MinuteHeatChart points={cur.points} peaks={cur.peaks} programId={cur.programId} />
+
+      {/* 代表コメント（ピーク分） */}
+      {repComments.length > 0 && (
+        <div className="mt-5 border-t border-line pt-4">
+          <p className="text-xs font-bold text-ink-soft mb-3">
+            この回で多かったコメント
+            <span className="ml-1.5 font-normal text-muted">（ニコニコ実況・ピーク時に集中したコメントの参考値）</span>
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {repComments.map((block) => (
+              <div key={block.minuteOffset} className="rounded-lg border border-line bg-surface p-3">
+                <p className="text-xs font-bold text-accent mb-2">▲ {block.minuteOffset}分ごろ</p>
+                <ul className="space-y-1.5">
+                  {block.comments.map((text, j) => (
+                    <li
+                      key={j}
+                      className="text-xs text-ink-soft whitespace-pre-wrap break-words leading-relaxed"
+                    >
+                      「{text}」
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

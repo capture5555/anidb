@@ -324,7 +324,7 @@ export function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[]> {
 async function loadProgramHeat(
   db: Db,
   programId: string,
-): Promise<{ points: MinuteHeatPoint[]; peaks: PeakInfo[] } | null> {
+): Promise<{ points: MinuteHeatPoint[]; peaks: PeakInfo[]; representativeComments: RepresentativeComment[] } | null> {
   const [{ data: heat }, { data: reactions }, { data: peaks }] = await Promise.all([
     db
       .from("analytics_minute_heat")
@@ -360,9 +360,22 @@ async function loadProgramHeat(
     points.push({ minute: m, total: heatByMinute.get(m) ?? 0, reactions: reactByMinute.get(m) ?? {} });
   }
 
+  // ピーク分の代表コメント文字列（DB は string[] で保存されている）
+  // コメント数の多い分を上位3分、各分で最大5件に絞る
+  const peakRows = (peaks ?? []).filter((p) => Array.isArray(p.comments) && p.comments.length > 0);
+  const heatByMinuteForPeak = new Map(heat.map((h) => [h.minute_offset, h.comment_count]));
+  const topPeakRows = peakRows
+    .slice()
+    .sort((a, b) => (heatByMinuteForPeak.get(b.minute_offset) ?? 0) - (heatByMinuteForPeak.get(a.minute_offset) ?? 0))
+    .slice(0, 3);
+
   return {
     points,
     peaks: (peaks ?? []).map((p) => ({ minute: p.minute_offset, comments: p.comments ?? [] })),
+    representativeComments: topPeakRows.map((p) => ({
+      minuteOffset: p.minute_offset,
+      comments: (p.comments as unknown as string[]).slice(0, 5),
+    })),
   };
 }
 
@@ -571,6 +584,11 @@ export function getPeakMoments(limit = 10): Promise<PeakMoment[]> {
 
 // ---------------------------------------------------------------- 作品別分析
 
+export interface RepresentativeComment {
+  minuteOffset: number;
+  comments: string[];
+}
+
 export interface EpisodeHeat {
   programId: string;
   episodeId: string | null;
@@ -580,6 +598,8 @@ export interface EpisodeHeat {
   totalComments: number;
   points: MinuteHeatPoint[];
   peaks: PeakInfo[];
+  /** ピーク分の代表コメント（analytics_peak_comments 由来の文字列配列）。無い場合は空配列。 */
+  representativeComments: RepresentativeComment[];
 }
 
 export interface WorkAnalysis {
@@ -670,6 +690,7 @@ export async function getWorkAnalysisLive(workId: string): Promise<WorkAnalysis 
         totalComments: countByProgram.get(p.id) ?? 0,
         points: heat.points,
         peaks: heat.peaks,
+        representativeComments: heat.representativeComments,
       });
     });
   }
