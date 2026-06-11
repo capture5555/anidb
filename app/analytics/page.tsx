@@ -459,6 +459,9 @@ export default async function AnalyticsPage({
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
       <div className="flex items-baseline gap-3 pt-6 sm:pt-8 mb-3">
         <h1 className="text-xl sm:text-2xl font-black text-ink">アニメ分析</h1>
+        <span className="text-[0.7rem] font-black text-white bg-accent rounded-full px-2.5 py-0.5 self-center">
+          {formatSeason(seasonOf(new Date()).year, seasonOf(new Date()).season)}クール
+        </span>
       </div>
 
       {seasonComment && (
@@ -669,14 +672,6 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
 
   return (
     <div className="space-y-5">
-      {/* 表示中シーズンの明示（分析がどのクールのものか見分けがつくように） */}
-      <div className="flex items-center gap-2 flex-wrap -mb-1">
-        <span className="text-[0.7rem] font-black text-white bg-accent rounded-full px-2.5 py-0.5">
-          {seasonLabel}クール
-        </span>
-        <span className="text-xs text-muted">の視聴分析を表示中</span>
-      </div>
-
       {/* 総合ランキング */}
       {overallRanking.length > 0 && (
         <OverallRankingCard rows={overallRanking} />
