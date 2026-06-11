@@ -9,6 +9,7 @@ import type { CoolScorecard } from "./scorecard";
 import type { StudioScorecard } from "./studios";
 import type { VaScorecard } from "./people";
 import type { GenreInsight } from "./genres";
+import type { FranchiseGroup } from "./franchise";
 
 /* ----------------------------------------------------------------
    ユーティリティ
@@ -217,4 +218,34 @@ export function genreOpportunity(rows: GenreInsight[]): string | null {
   const best = candidates.reduce((a, b) => (b.avgPopularity > a.avgPopularity ? b : a));
 
   return `グリーンライト機会：「${best.genre}」は平均人気 ${best.avgPopularity.toLocaleString()} と需要が高いが、作品数は ${best.worksCount} 本と少ない。供給余地あり。`;
+}
+
+/* ----------------------------------------------------------------
+   franchiseInsight
+   ---------------------------------------------------------------- */
+
+/**
+ * フランチャイズ・モメンタムから「最も伸びているIP」と「縮小傾向のIP数」を1行で要約する。
+ * 伸びているIP（popularityTrend != null かつ growing）が無ければ null を返す。
+ */
+export function franchiseInsight(groups: FranchiseGroup[]): string | null {
+  if (!groups || groups.length === 0) return null;
+
+  const growing = groups.filter(
+    (g) => g.verdict === "growing" && g.popularityTrend != null,
+  );
+  if (growing.length === 0) return null;
+
+  // popularityTrend 最大のIP
+  const top = growing.reduce((a, b) =>
+    (b.popularityTrend ?? 0) > (a.popularityTrend ?? 0) ? b : a,
+  );
+
+  const decayingCount = groups.filter((g) => g.verdict === "decaying").length;
+  const x = (top.popularityTrend ?? 1).toFixed(1);
+
+  const decayPart =
+    decayingCount > 0 ? `一方、縮小傾向のIPは ${decayingCount} 系列。` : "";
+
+  return `最も伸びているIPは「${top.latestTitle}」（系列人気 ${x}倍）。${decayPart}続編greenlight・フランチャイズ投資の判断材料に。`;
 }
