@@ -67,6 +67,8 @@ import {
 import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
+import { SectionNote } from "@/components/charts/WorkAnalysisSections";
+import { hotProgramsComment } from "@/lib/analytics/sectionComments";
 import { QuadrantScatter } from "@/components/charts/QuadrantScatter";
 import { SEASON_LABELS, SEASON_ORDER } from "@/lib/season";
 import { formatPopularity, formatAirShort } from "@/lib/format";
@@ -270,6 +272,7 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
           ニコニコ実況のコメント数を分単位で集計し、コメント内容から「笑い・興奮・感動」などのリアクションを分類。
           ▲はコメントが集中したピーク。グラフにカーソルを合わせると内訳が見られます。
         </p>
+        <SectionNote text={hotProgramsComment(hot)} />
         <HotProgramsPanel programs={hot} />
       </section>
 

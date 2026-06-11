@@ -8,6 +8,8 @@
  * 各セクションも個別に「データがある場合のみ」描画するため、部分的な蓄積状況でも崩れない。
  */
 import type { WorkXBuzz } from "@/lib/analytics/xbuzz";
+import { xBuzzSectionComment } from "@/lib/analytics/sectionComments";
+import { SectionNote } from "./WorkAnalysisSections";
 
 interface XBuzzPost {
   statusId: string;
@@ -410,6 +412,8 @@ export function XBuzzSection({
   return (
     <section className="card p-5 sm:p-6">
       <h2 className="section-title text-lg mb-4">Xの反応（X Premium・x_search）</h2>
+
+      {buzz && <SectionNote text={xBuzzSectionComment(buzz)} />}
 
       {/* 現在の盛り上がり */}
       {buzz && (
