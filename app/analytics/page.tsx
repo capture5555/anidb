@@ -48,8 +48,12 @@ import {
 import {
   getCohortXBuzz,
   getXBuzzVsJikkyo,
+  getEpisodeBuzzLeaders,
+  getXBuzzTopicLeaders,
   type CohortXBuzz,
   type XBuzzVsJikkyo,
+  type EpisodeBuzzLeader,
+  type XTopicLeader,
 } from "@/lib/analytics/xbuzz";
 import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight, compareInsight, compareStaffInsight, toPercentileRank } from "@/lib/analytics/insights";
 import {
@@ -578,14 +582,136 @@ function BuzzVolumeGauge({ volume }: { volume: number }) {
   );
 }
 
+/** 概況ストリップの1指標。 */
+function BuzzStat({ label, value, unit }: { label: string; value: number; unit?: string }) {
+  return (
+    <div className="rounded-lg bg-paper/60 px-3 py-2.5">
+      <p className="text-[0.68rem] font-bold text-muted">{label}</p>
+      <p className="text-xl font-black text-ink tabular-nums leading-tight mt-0.5">
+        {value.toLocaleString()}
+        {unit && <span className="text-xs font-bold text-muted ml-0.5">{unit}</span>}
+      </p>
+    </div>
+  );
+}
+
+/** ポジ/賛否/ネガの内訳を1本の積み上げバーで表す。 */
+function SentimentBar({
+  counts,
+  total,
+}: {
+  counts: { positive: number; mixed: number; negative: number };
+  total: number;
+}) {
+  const seg = [
+    { key: "positive", n: counts.positive, cls: "bg-emerald-400", label: "ポジティブ" },
+    { key: "mixed", n: counts.mixed, cls: "bg-amber-400", label: "賛否両論" },
+    { key: "negative", n: counts.negative, cls: "bg-rose-400", label: "ネガティブ" },
+  ].filter((s) => s.n > 0);
+  return (
+    <div>
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-paper">
+        {seg.map((s) => (
+          <div
+            key={s.key}
+            className={s.cls}
+            style={{ width: `${(s.n / total) * 100}%` }}
+            title={`${s.label} ${s.n}作品`}
+          />
+        ))}
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+        {seg.map((s) => (
+          <span key={s.key} className="inline-flex items-center gap-1.5 text-[0.7rem] text-ink-soft">
+            <span className={`h-2 w-2 rounded-sm ${s.cls}`} />
+            {s.label}
+            <span className="font-bold tabular-nums">
+              {s.n}（{Math.round((s.n / total) * 100)}%）
+            </span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** トピックを頻度に応じた大きさのチップ群（タグクラウド風）で表示。 */
+function TopicCloud({ topics }: { topics: XTopicLeader[] }) {
+  const max = Math.max(1, ...topics.map((t) => t.count));
+  return (
+    <ul className="flex flex-wrap gap-2">
+      {topics.map((t) => {
+        // 件数を 0.78rem〜1.1rem にマップ。最頻出ほど大きく濃く。
+        const ratio = t.count / max;
+        const fontRem = 0.78 + ratio * 0.32;
+        const strong = ratio >= 0.6;
+        return (
+          <li
+            key={t.topic}
+            className={`rounded-full px-3 py-1 font-medium ${
+              strong ? "bg-accent/15 text-ink" : "bg-paper text-ink-soft"
+            }`}
+            style={{ fontSize: `${fontRem.toFixed(2)}rem` }}
+            title={`${t.count}作品: ${t.sampleTitles.join(" / ")}`}
+          >
+            {t.topic}
+            <span className="ml-1 text-[0.66rem] font-bold text-muted tabular-nums align-top">
+              {t.count}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 async function BuzzSection() {
-  const [cohort, vsJikkyo] = await Promise.all([
+  const [cohort, vsJikkyo, epLeaders, topics] = await Promise.all([
     getCohortXBuzz(20).catch((): CohortXBuzz[] => []),
     getXBuzzVsJikkyo(30).catch((): XBuzzVsJikkyo[] => []),
+    getEpisodeBuzzLeaders(12).catch((): EpisodeBuzzLeader[] => []),
+    getXBuzzTopicLeaders(24).catch((): XTopicLeader[] => []),
   ]);
+
+  // センチメント分布（ランキング母集団の内訳）。
+  const sentCounts = { positive: 0, mixed: 0, negative: 0 };
+  for (const c of cohort) {
+    const s = (c.sentiment ?? "").toLowerCase();
+    if (s === "positive") sentCounts.positive++;
+    else if (s === "mixed") sentCounts.mixed++;
+    else if (s === "negative") sentCounts.negative++;
+  }
+  const sentTotal = sentCounts.positive + sentCounts.mixed + sentCounts.negative;
 
   return (
     <div className="space-y-5">
+      {/* 概況ストリップ */}
+      {(cohort.length > 0 || epLeaders.length > 0) && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-4">今期Xバズ概況</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <BuzzStat label="追跡作品数" value={cohort.length} unit="作品" />
+            <BuzzStat
+              label="平均バズ"
+              value={
+                cohort.length > 0
+                  ? Math.round((cohort.reduce((s, c) => s + c.volume, 0) / cohort.length) * 10) / 10
+                  : 0
+              }
+              unit="/5"
+            />
+            <BuzzStat label="話数別データ" value={epLeaders.length} unit="話" />
+            <BuzzStat label="話題ワード" value={topics.length} unit="語" />
+          </div>
+          {sentTotal > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-bold text-muted mb-1.5">センチメント分布（追跡作品）</p>
+              <SentimentBar counts={sentCounts} total={sentTotal} />
+            </div>
+          )}
+        </section>
+      )}
+
       {/* クール内Xバズランキング */}
       <section className="card p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
@@ -635,6 +761,80 @@ async function BuzzSection() {
           </ol>
         )}
       </section>
+
+      {/* 注目の話数（クール横断・話数別バズ上位） */}
+      {epLeaders.length > 0 && (
+        <section className="card p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+            <h2 className="section-title text-lg">注目の話数</h2>
+            <CsvExportButton
+              filename="X注目の話数"
+              headers={["順位", "作品", "話数", "盛り上がり", "センチメント"]}
+              rows={epLeaders.map((e, i) => [
+                i + 1,
+                e.title,
+                e.episodeLabel,
+                e.volume,
+                e.sentiment ?? "",
+              ])}
+            />
+          </div>
+          <p className="text-xs text-muted mb-4">
+            今期作品の「話数ごと」のXバズを横断で並べたもの。いまどの作品のどの話が刺さっているかが分かります。
+          </p>
+          <ol className="divide-y divide-line">
+            {epLeaders.map((e, i) => (
+              <li key={`${e.workId}-${e.episodeId ?? i}`} className="flex items-center gap-3 py-2.5">
+                <span
+                  className={`w-5 text-right font-black tabular-nums shrink-0 ${
+                    i < 3 ? "text-accent" : "text-muted"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <Link href={`/analytics/works/${e.workId}`} className="shrink-0">
+                  <WorkCover id={e.workId} title={e.title} url={e.posterUrl} className="w-9 h-12 rounded-md" />
+                </Link>
+                <div className="flex-1 min-w-0">
+                  <Link
+                    href={`/analytics/works/${e.workId}`}
+                    className="block text-sm font-bold text-ink hover:text-primary transition truncate"
+                  >
+                    {e.title}
+                  </Link>
+                  <span className="text-[0.72rem] text-muted">
+                    {e.episodeLabel}
+                    {e.topics[0] ? ` ・ ${e.topics[0]}` : ""}
+                  </span>
+                </div>
+                <BuzzVolumeGauge volume={e.volume} />
+                <span className="text-xs font-bold text-ink-soft tabular-nums shrink-0 w-7 text-right">
+                  {Math.max(0, Math.min(5, Math.round(e.volume)))}/5
+                </span>
+                <BuzzSentimentChip sentiment={e.sentiment} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {/* 話題ワード（クール横断トピックランキング） */}
+      {topics.length > 0 && (
+        <section className="card p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+            <h2 className="section-title text-lg">話題ワード</h2>
+            <CsvExportButton
+              filename="X話題ワード"
+              headers={["トピック", "作品数", "代表作品"]}
+              rows={topics.map((t) => [t.topic, t.count, t.sampleTitles.join(" / ")])}
+            />
+          </div>
+          <p className="text-xs text-muted mb-4">
+            今期作品のXバズ分析で複数作品にまたがって挙がっているキーワード。クール全体の関心の地図です。
+          </p>
+          <TopicCloud topics={topics} />
+        </section>
+      )}
 
       {/* ニコ実況 × X 相関 */}
       <section className="card p-5 sm:p-6">
