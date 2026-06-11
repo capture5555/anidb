@@ -345,8 +345,7 @@ function EpisodeBuzzList({
   return (
     <ul className="space-y-3">
       {episodes.map((ep, i) => {
-        const sum =
-          ep.summary && ep.summary.length > 220 ? `${ep.summary.slice(0, 220)}…` : ep.summary;
+        const sum = ep.summary; // 各話の声も全文表示
         const eps = ep.episodeId ? (postsByEpisode.get(ep.episodeId) ?? []) : [];
         return (
           <li
@@ -393,10 +392,8 @@ export function XBuzzSection({
   // X データがまだ何も無ければ丸ごと非表示。
   if (!buzz && posts.length === 0) return null;
 
-  const summary =
-    buzz?.summary && buzz.summary.length > 600
-      ? `${buzz.summary.slice(0, 600)}…`
-      : (buzz?.summary ?? null);
+  // 作品の声は全文表示する（途中で「…」と切らない）。
+  const summary = buzz?.summary ?? null;
   const citations = buzz?.citations.slice(0, 8) ?? [];
   const episodes = buzz?.episodes ?? [];
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MinuteHeatChart, type MinutePointInput, type PeakInput } from "./MinuteHeatChart";
+import { episodeJikkyoTendency } from "@/lib/analytics/sectionComments";
 
 /**
  * 作品別分析: ①話数別実況コメント数の棒グラフ ②話数を選んで全話の分単位盛り上がりグラフ。
@@ -104,6 +105,21 @@ export function EpisodeHeatSelector({ episodes }: { episodes: EpisodeHeatInput[]
   const cur = episodes[selected];
   const repComments = cur.representativeComments ?? [];
 
+  // この回の実況の傾向メモ（リアクション内訳＋瞬間最大＋規模）。
+  const reactionCounts: Record<string, number> = {};
+  let peakPerMinute = 0;
+  for (const p of cur.points) {
+    if (p.total > peakPerMinute) peakPerMinute = p.total;
+    for (const [k, v] of Object.entries(p.reactions)) {
+      if (v) reactionCounts[k] = (reactionCounts[k] ?? 0) + v;
+    }
+  }
+  const tendency = episodeJikkyoTendency({
+    totalComments: cur.totalComments,
+    reactionCounts,
+    peakPerMinute,
+  });
+
   return (
     <div>
       {/* 話数ピル（放送日つき） */}
@@ -132,6 +148,12 @@ export function EpisodeHeatSelector({ episodes }: { episodes: EpisodeHeatInput[]
         {cur.channelName && `（${cur.channelName}）`} ・ {fmtDate(cur.startAt)}放送 ・ 計
         {cur.totalComments.toLocaleString()}コメント
       </p>
+      {tendency && (
+        <p className="mb-3 text-xs leading-relaxed text-ink-soft bg-accent/[0.06] border-l-2 border-accent rounded-r px-3 py-2">
+          <span className="font-bold text-accent mr-1.5">この回の傾向</span>
+          {tendency}
+        </p>
+      )}
       <MinuteHeatChart points={cur.points} peaks={cur.peaks} programId={cur.programId} />
 
       {/* 代表コメント（ピーク分） */}

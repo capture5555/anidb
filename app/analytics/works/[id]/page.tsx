@@ -87,7 +87,7 @@ export default async function WorkAnalyticsPage({
               <span className="text-[0.66rem] text-muted">Grok・X</span>
             </div>
             <p className="text-[0.9rem] leading-[1.8] text-ink-soft whitespace-pre-wrap">
-              {xbuzz.summary.length > 200 ? `${xbuzz.summary.slice(0, 200)}…` : xbuzz.summary}
+              {xbuzz.summary}
             </p>
           </div>
         )}

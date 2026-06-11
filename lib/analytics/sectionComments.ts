@@ -5,9 +5,10 @@
  * すべて純関数（DBアクセスなし）で、データが薄いときは null を返す（＝メモ非表示）。
  * 統計に基づく即時コメントなので、Grok等のLLMは使わずルールベースで生成する。
  */
-import type { WorkAnalysis } from "./viewing.ts";
+import type { WorkAnalysis, RetentionSeries, PeakMoment, ReactionRatioWork } from "./viewing.ts";
 import type { WorkReactionBreakdown } from "./workReactions.ts";
 import type { ReactionCategory } from "./commentAnalysis.ts";
+import type { CohortXBuzz, XBuzzVsJikkyo, EpisodeBuzzLeader, XTopicLeader } from "./xbuzz.ts";
 
 const REACTION_LABEL: Record<ReactionCategory, string> = {
   laugh: "笑い",
@@ -131,4 +132,154 @@ export function hotProgramsComment(
   if (top.totalComments <= 0) return null;
   const ep = top.episodeLabel ? ` ${shortEp(top.episodeLabel)}` : "";
   return `直近で最も実況が盛り上がったのは「${top.workTitle}」${ep}（${top.totalComments.toLocaleString()}コメント）。`;
+}
+
+/**
+ * 放送回ごとの実況の傾向メモ（その回のリアクション内訳＋規模＋瞬間最大から）。
+ * 母数が小さい回は null。話数を選んだときに「この回はこういう傾向」を出すのに使う。
+ */
+export function episodeJikkyoTendency(input: {
+  totalComments: number;
+  reactionCounts: Partial<Record<ReactionCategory, number>>;
+  peakPerMinute?: number;
+}): string | null {
+  const total = input.totalComments;
+  if (total < 20) return null; // 母数が少なすぎる回はメモなし
+  const entries = (Object.entries(input.reactionCounts) as [ReactionCategory, number][])
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  const parts: string[] = [];
+  if (entries.length > 0) {
+    const top = REACTION_LABEL[entries[0][0]] ?? entries[0][0];
+    const second = entries[1] ? `・${REACTION_LABEL[entries[1][0]] ?? entries[1][0]}` : "";
+    parts.push(`実況は「${top}${second}」系の反応が中心`);
+  }
+  if (input.peakPerMinute && input.peakPerMinute >= 100) {
+    parts.push("一気に伸びる瞬間（祭り）あり");
+  }
+  const scale =
+    total >= 2000 ? "盛況" : total >= 500 ? "まずまずの賑わい" : "落ち着いた反応";
+  parts.push(`全体は${scale}（${total.toLocaleString()}コメント）`);
+  return `${parts.join("、")}。`;
+}
+
+/* ================================================================
+ * 分析ハブ用 追加コメント関数
+ * ================================================================ */
+
+/**
+ * 話数別視聴継続率セクションのメモ（分析ハブ用）。
+ * 最も残留率が安定している作品と最も落ちた作品を対比する。
+ */
+export function retentionSeriesComment(series: RetentionSeries[]): string | null {
+  if (series.length < 2) return null;
+  // 最新話残留率（最後のポイント）が確定している系列だけ対象
+  const withLast = series
+    .map((s) => ({ title: s.title, last: s.points[s.points.length - 1]?.pct ?? null }))
+    .filter((s): s is { title: string; last: number } => s.last != null && s.last > 0);
+  if (withLast.length < 2) return null;
+  const best = withLast.reduce((a, b) => (b.last > a.last ? b : a));
+  const worst = withLast.reduce((a, b) => (b.last < a.last ? b : a));
+  if (best.title === worst.title) return null;
+  return `残留率が最も高いのは「${best.title}」（${Math.round(best.last)}%）、最も落ちているのは「${worst.title}」（${Math.round(worst.last)}%）。`;
+}
+
+/**
+ * 瞬間最大風速ランキングセクションのメモ（分析ハブ用）。
+ * 1位の瞬間とそのコメント密度を述べる。
+ */
+export function peakMomentsComment(peaks: PeakMoment[]): string | null {
+  if (peaks.length === 0) return null;
+  const top = peaks[0];
+  if (top.maxPerMinute <= 0) return null;
+  const ep = top.episodeLabel ? ` ${shortEp(top.episodeLabel)}` : "";
+  return `今期の最大瞬間風速は「${top.workTitle}」${ep}（${top.maxPerMinute.toLocaleString()}コメ/分）。`;
+}
+
+/**
+ * リアクション別ランキングセクションのメモ（分析ハブ用）。
+ * 笑い・感動・作画で最も高率だった作品をひとまとめに紹介する。
+ */
+export function reactionRankingComment(ratios: ReactionRatioWork[]): string | null {
+  if (ratios.length < 3) return null;
+  const topOf = (cat: "laugh" | "cry" | "sakuga"): { title: string; pct: number } | null => {
+    const sorted = ratios
+      .filter((w) => (w.ratios[cat] ?? 0) > 0)
+      .sort((a, b) => (b.ratios[cat] ?? 0) - (a.ratios[cat] ?? 0));
+    if (sorted.length === 0) return null;
+    return { title: sorted[0].title, pct: Math.round(sorted[0].ratios[cat] ?? 0) };
+  };
+  const laugh = topOf("laugh");
+  const cry = topOf("cry");
+  if (!laugh && !cry) return null;
+  const parts: string[] = [];
+  if (laugh) parts.push(`笑いは「${laugh.title}」（${laugh.pct}%）`);
+  if (cry) parts.push(`感動は「${cry.title}」（${cry.pct}%）`);
+  return `${parts.join("、")}がトップ。`;
+}
+
+/**
+ * クール内Xバズランキングのメモ（分析ハブ用）。
+ * 1位の作品とバズ強度、ポジティブ率を述べる。
+ */
+export function cohortXBuzzComment(cohort: CohortXBuzz[]): string | null {
+  if (cohort.length === 0) return null;
+  const top = cohort[0];
+  const vol = Math.max(0, Math.min(5, Math.round(top.volume)));
+  const senti = (top.sentiment ?? "").toLowerCase();
+  const sentiNote =
+    senti === "positive" ? "・好評" : senti === "negative" ? "・批判的な声も" : senti === "mixed" ? "・賛否あり" : "";
+  return `今期Xバズ1位は「${top.title}」（${vol}/5）${sentiNote}。全${cohort.length}作品を追跡中。`;
+}
+
+/**
+ * ニコ実況×X相関セクションのメモ（分析ハブ用）。
+ * 「実況で熱いがXは静か」「Xで話題だが実況は静か」の代表作を指摘する。
+ */
+export function xBuzzVsJikkyoComment(points: XBuzzVsJikkyo[]): string | null {
+  if (points.length < 4) return null;
+  const maxJikkyo = Math.max(...points.map((p) => p.jikkyoComments));
+  const midJikkyo = maxJikkyo / 2;
+  const midVol = 2.5;
+  // 右下象限: 実況コメントが多い（>midJikkyo）がXバズが低い（<midVol）
+  const jikkyoHot = points.filter((p) => p.jikkyoComments > midJikkyo && p.xVolume < midVol);
+  // 左上象限: 実況コメントが少ない（<=midJikkyo）がXバズが高い（>=midVol）
+  const xHot = points.filter((p) => p.jikkyoComments <= midJikkyo && p.xVolume >= midVol);
+  const parts: string[] = [];
+  if (jikkyoHot.length > 0) {
+    const rep = jikkyoHot.reduce((a, b) => (b.jikkyoComments > a.jikkyoComments ? b : a));
+    parts.push(`実況で熱いがXは静かな作品の代表は「${rep.title}」`);
+  }
+  if (xHot.length > 0) {
+    const rep = xHot.reduce((a, b) => (b.xVolume > a.xVolume ? b : a));
+    parts.push(`X上で話題だが実況は静かなのは「${rep.title}」`);
+  }
+  if (parts.length === 0) return null;
+  return `${parts.join("。")}。`;
+}
+
+/**
+ * 注目の話数セクションのメモ（分析ハブ用）。
+ * 1位の話数とトピックを紹介する。
+ */
+export function epLeadersComment(epLeaders: EpisodeBuzzLeader[]): string | null {
+  if (epLeaders.length === 0) return null;
+  const top = epLeaders[0];
+  const vol = Math.max(0, Math.min(5, Math.round(top.volume)));
+  const topic = top.topics[0] ? `「${top.topics[0]}」が話題` : "";
+  const ep = top.episodeLabel ? ` ${top.episodeLabel}` : "";
+  return `話数別バズ1位は「${top.title}」${ep}（${vol}/5）${topic ? "。" + topic : ""}。`;
+}
+
+/**
+ * 話題ワードセクションのメモ（分析ハブ用）。
+ * 最多出現ワードと複数作品にまたがるワード数を述べる。
+ */
+export function topicsComment(topics: XTopicLeader[]): string | null {
+  if (topics.length === 0) return null;
+  const top = topics[0];
+  const crossCount = topics.filter((t) => t.count >= 2).length;
+  const crossNote = crossCount > 0 ? `複数作品またがりワードが${crossCount}語` : `${topics.length}語が集計中`;
+  return `最多話題は「${top.topic}」（${top.count}作品）。${crossNote}。`;
 }
