@@ -40,6 +40,7 @@ import {
   getPeakMomentsLive,
   getRetentionSeriesLive,
 } from "../lib/analytics/viewing.ts";
+import { getCohortXBuzzForSnapshot } from "../lib/analytics/xbuzz.ts";
 
 /**
  * 計算ユニット: key と「ページが使うデフォルト引数での LIVE 計算」のペア。
@@ -65,6 +66,7 @@ const UNITS: Unit[] = [
   { key: "peak_moments", compute: () => getPeakMomentsLive(10), count: (r) => r?.length ?? 0 },
   { key: "annict_retention", compute: () => getRetentionSeriesLive(8), count: (r) => r?.series?.length ?? 0 },
   { key: "timeslot_heatmap", compute: getTimeslotHeatmapUncached, count: (r) => r?.cells?.length ?? 0 },
+  { key: "x_cohort_buzz", compute: () => getCohortXBuzzForSnapshot(20), count: (r) => r?.length ?? 0 },
 ];
 
 /** 1ユニットを計算→保存。失敗しても throw せず結果オブジェクトを返す。 */
