@@ -38,11 +38,12 @@ function countQuadrants(works: CoolScorecard["works"]): Record<string, number> {
    ---------------------------------------------------------------- */
 
 /**
- * クール診断の自動サマリー（2〜4行）。
+ * クール診断の自動サマリー（最大5行）。
  * - ①総合トップ作品
- * - ②最も顕著なスリーパー（sleeper && scoreDev - awarenessDev が最大）
- * - ③ダークホース筆頭
- * - ④4象限の分布
+ * - ②最も顕著なスリーパー（sleeper && scoreDev - awarenessDev が最大）＋ 具体数値
+ * - ③最も顕著な話題先行作品（overhyped && awarenessDev - scoreDev が最大）
+ * - ④ダークホース筆頭
+ * - ⑤4象限の分布
  * データが薄い場合は空配列を返す。
  */
 export function seasonSummary(card: CoolScorecard): string[] {
@@ -67,13 +68,31 @@ export function seasonSummary(card: CoolScorecard): string[] {
       const gapB = (b.scoreDev ?? 0) - b.awarenessDev;
       return gapB > gapA ? b : a;
     });
-    const gap = ((best.scoreDev ?? 0) - best.awarenessDev).toFixed(0);
+    const scDev = (best.scoreDev ?? 0).toFixed(0);
+    const awDev = best.awarenessDev.toFixed(0);
     lines.push(
-      `スリーパー筆頭は「${best.title}」：評価偏差値が認知偏差値を ${gap} ポイント上回る過小評価候補。`,
+      `最も過小評価：「${best.title}」（評価偏差値 ${scDev} / 認知偏差値 ${awDev}）。高評価だが認知が追いついていない＝発掘・先行投資の候補。`,
     );
   }
 
-  // ③ ダークホース筆頭（darkhorse が最大かつ正）
+  // ③ 最も顕著な話題先行作品（overhyped が true の中で awarenessDev - scoreDev が最大）
+  const overhypedWorks = works.filter(
+    (w) => w.overhyped && w.scoreDev != null,
+  );
+  if (overhypedWorks.length > 0) {
+    const worst = overhypedWorks.reduce((a, b) => {
+      const gapA = a.awarenessDev - (a.scoreDev ?? 0);
+      const gapB = b.awarenessDev - (b.scoreDev ?? 0);
+      return gapB > gapA ? b : a;
+    });
+    const awDev = worst.awarenessDev.toFixed(0);
+    const scDev = (worst.scoreDev ?? 0).toFixed(0);
+    lines.push(
+      `話題先行筆頭：「${worst.title}」（認知偏差値 ${awDev} / 評価偏差値 ${scDev}）。初速以降の伸びは慎重に見る。`,
+    );
+  }
+
+  // ④ ダークホース筆頭（darkhorse が最大かつ正）
   const dhWorks = works.filter((w) => w.darkhorse > 0);
   if (dhWorks.length > 0) {
     const topDh = dhWorks.reduce((a, b) => (b.darkhorse > a.darkhorse ? b : a));
@@ -82,7 +101,7 @@ export function seasonSummary(card: CoolScorecard): string[] {
     );
   }
 
-  // ④ 4象限の分布
+  // ⑤ 4象限の分布
   const qc = countQuadrants(works);
   const total = works.length;
   if (total >= 4) {

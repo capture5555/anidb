@@ -446,11 +446,6 @@ async function ScorecardSection() {
     .sort((a, b) => b.darkhorse - a.darkhorse)
     .slice(0, 5);
 
-  // スリーパー（過小評価）/ 話題先行：スリーパーを先頭に
-  const flagged = card.works
-    .filter((w) => w.sleeper || w.overhyped)
-    .sort((a, b) => Number(b.sleeper) - Number(a.sleeper));
-
   const quadrants: Quadrant[] = ["royal", "wordofmouth", "fastburn", "niche"];
 
   return (
@@ -480,6 +475,9 @@ async function ScorecardSection() {
         </p>
         <QuadrantScatter points={points} />
       </section>
+
+      {/* 発掘ビュー（評価 × 認知） */}
+      <DiscoveryView works={card.works} />
 
       {/* 偏差値ランキング表 */}
       <section className="card p-5 sm:p-6">
@@ -580,40 +578,6 @@ async function ScorecardSection() {
         </section>
       )}
 
-      {/* スリーパー（過小評価）/ 話題先行 */}
-      {flagged.length > 0 && (
-        <section className="card p-5 sm:p-6">
-          <h2 className="section-title text-lg mb-1">スリーパー（過小評価）/ 話題先行</h2>
-          <p className="text-xs text-muted mb-4">
-            <strong>過小評価</strong>＝評価は高いが認知が低い（発掘・先行投資の候補）。
-            <strong>話題先行</strong>＝認知は高いが評価が伴わない。いずれも認知・評価の偏差値で判定しています。
-          </p>
-          <ol className="space-y-2">
-            {flagged.map((w) => (
-              <li key={w.workId} className="flex items-center gap-3">
-                <Link
-                  href={`/analytics/works/${w.workId}`}
-                  className="flex-1 min-w-0 text-sm font-medium text-ink hover:text-primary transition truncate"
-                >
-                  {w.title}
-                </Link>
-                <span className="text-xs text-muted tabular-nums shrink-0">
-                  認知{w.awarenessDev.toFixed(0)} / 評価{w.scoreDev != null ? w.scoreDev.toFixed(0) : "—"}
-                </span>
-                <span
-                  className={`shrink-0 text-[0.66rem] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${
-                    w.sleeper
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-paper text-muted border border-line"
-                  }`}
-                >
-                  {w.sleeper ? "過小評価" : "話題先行"}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
 
       {/* 4象限の作品リスト */}
       <section className="card p-5 sm:p-6">
@@ -649,6 +613,133 @@ async function ScorecardSection() {
         各指標は各サービス利用者を母数とした参考値です。
       </p>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- 発掘ビュー */
+
+function DiscoveryView({ works }: { works: ScorecardWork[] }) {
+  const sleepers = works
+    .filter((w) => w.sleeper && w.scoreDev != null)
+    .sort((a, b) => (b.scoreDev! - b.awarenessDev) - (a.scoreDev! - a.awarenessDev))
+    .slice(0, 8);
+
+  const overhyped = works
+    .filter((w) => w.overhyped && w.scoreDev != null)
+    .sort((a, b) => (b.awarenessDev - b.scoreDev!) - (a.awarenessDev - a.scoreDev!))
+    .slice(0, 6);
+
+  if (sleepers.length === 0 && overhyped.length === 0) return null;
+
+  const scatterPoints = works
+    .filter((w) => w.scoreDev != null)
+    .map((w) => ({
+      workId: w.workId,
+      title: w.title,
+      x: w.awarenessDev,
+      y: w.scoreDev as number,
+      overall: w.overall,
+    }));
+
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-lg mb-1">発掘ビュー（評価 × 認知）</h2>
+
+      {/* 認知 × 評価 散布図 */}
+      {scatterPoints.length > 0 && (
+        <div className="mb-6">
+          <QuadrantScatter points={scatterPoints} />
+          <p className="text-[0.68rem] text-muted mt-2 leading-relaxed">
+            横＝認知偏差値、縦＝評価偏差値。
+            左上（高評価・低認知）＝発掘候補（スリーパー）、右下（高認知・低評価）＝話題先行。
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 発掘候補ランキング */}
+        {sleepers.length > 0 && (
+          <div>
+            <h3 className="font-black text-[0.92rem] text-emerald-600 mb-1">
+              発掘候補（スリーパー）
+            </h3>
+            <p className="text-[0.68rem] text-muted mb-3 leading-relaxed">
+              高評価だが認知が追いついていない作品。評価−認知ギャップが大きい順。
+            </p>
+            <ol className="divide-y divide-line">
+              {sleepers.map((w, i) => {
+                const gap = (w.scoreDev! - w.awarenessDev).toFixed(1);
+                return (
+                  <li key={w.workId} className="flex items-center gap-3 py-2">
+                    <span
+                      className={`w-5 text-right font-black tabular-nums shrink-0 ${
+                        i < 3 ? "text-accent" : "text-muted"
+                      }`}
+                    >
+                      {i + 1}
+                    </span>
+                    <Link
+                      href={`/analytics/works/${w.workId}`}
+                      className="flex-1 min-w-0 text-sm font-medium text-ink hover:text-primary transition truncate"
+                    >
+                      {w.title}
+                    </Link>
+                    <span className="text-xs text-muted tabular-nums shrink-0 whitespace-nowrap">
+                      評価{w.scoreDev!.toFixed(0)} / 認知{w.awarenessDev.toFixed(0)}
+                    </span>
+                    <span className="text-xs font-black text-emerald-600 tabular-nums shrink-0 w-14 text-right whitespace-nowrap">
+                      +{gap}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="text-[0.62rem] text-muted mt-1.5">評価−認知 = ギャップ偏差値</p>
+          </div>
+        )}
+
+        {/* 話題先行ランキング */}
+        {overhyped.length > 0 && (
+          <div>
+            <h3 className="font-black text-[0.92rem] text-amber-500 mb-1">
+              話題先行（過大評価）
+            </h3>
+            <p className="text-[0.68rem] text-muted mb-3 leading-relaxed">
+              認知は高いが評価が伴わない作品。認知−評価ギャップが大きい順。
+            </p>
+            <ol className="divide-y divide-line">
+              {overhyped.map((w, i) => {
+                const gap = (w.awarenessDev - w.scoreDev!).toFixed(1);
+                return (
+                  <li key={w.workId} className="flex items-center gap-3 py-2">
+                    <span
+                      className={`w-5 text-right font-black tabular-nums shrink-0 ${
+                        i < 3 ? "text-accent" : "text-muted"
+                      }`}
+                    >
+                      {i + 1}
+                    </span>
+                    <Link
+                      href={`/analytics/works/${w.workId}`}
+                      className="flex-1 min-w-0 text-sm font-medium text-ink hover:text-primary transition truncate"
+                    >
+                      {w.title}
+                    </Link>
+                    <span className="text-xs text-muted tabular-nums shrink-0 whitespace-nowrap">
+                      認知{w.awarenessDev.toFixed(0)} / 評価{w.scoreDev!.toFixed(0)}
+                    </span>
+                    <span className="text-xs font-black text-amber-500 tabular-nums shrink-0 w-14 text-right whitespace-nowrap">
+                      +{gap}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="text-[0.62rem] text-muted mt-1.5">認知−評価 = ギャップ偏差値</p>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
