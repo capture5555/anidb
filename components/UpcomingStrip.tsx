@@ -3,15 +3,30 @@ import { cookies } from "next/headers";
 import { getDataProvider } from "@/lib/data/provider";
 import { WorkCover } from "./WorkCover";
 import { SubscribeButton } from "./SubscribeButton";
-import { RegionSelector } from "./RegionSelector";
+import { ChannelSelector } from "./ChannelSelector";
 import { formatAirShort } from "@/lib/format";
 import { parseRegion, REGION_COOKIE } from "@/lib/regions";
+import {
+  parseChannelsCookie,
+  seedChannelsFromRegion,
+  CHANNELS_COOKIE,
+} from "@/lib/channels";
+import { getSession } from "@/lib/session";
+import { isGoogleConfigured } from "@/lib/google/oauth";
 
-/** TOPページの「この後の放送」ミニ番組表（直近に放送される作品を早い順に・地域別） */
+/** TOPページの「この後の放送」ミニ番組表（直近に放送される作品を早い順に・放送局別） */
 export async function UpcomingStrip() {
-  const region = parseRegion((await cookies()).get(REGION_COOKIE)?.value);
+  // 放送局選択を Cookie から取得。未設定なら（レガシー）地域の種から既定セットを使う。
+  const cookieStore = await cookies();
+  const cookieChannels = parseChannelsCookie(cookieStore.get(CHANNELS_COOKIE)?.value);
+  const channels =
+    cookieChannels.length > 0
+      ? cookieChannels
+      : seedChannelsFromRegion(parseRegion(cookieStore.get(REGION_COOKIE)?.value));
+  const loggedIn = isGoogleConfigured() && (await getSession()) != null;
+
   const provider = await getDataProvider();
-  const items = await provider.getUpcomingBroadcasts(10, region).catch(() => []);
+  const items = await provider.getUpcomingBroadcasts(10, channels).catch(() => []);
   if (items.length === 0) return null;
 
   return (
@@ -19,7 +34,7 @@ export async function UpcomingStrip() {
       <div className="flex items-center gap-2 mb-2.5">
         <h2 className="section-title text-base">この後の放送</h2>
         <div className="ml-auto flex items-center gap-3">
-          <RegionSelector initial={region} />
+          <ChannelSelector initial={channels} loggedIn={loggedIn} />
           <Link
             href="/schedule"
             className="text-xs font-bold text-primary hover:underline underline-offset-2"

@@ -5,6 +5,7 @@ import { getDataProvider } from "@/lib/data/provider";
 import { pickOnePerEpisode } from "@/lib/programs";
 import { parseRegion, type Region } from "@/lib/regions";
 import { setUserRegion } from "@/lib/userRegion";
+import { seedChannelsFromRegion } from "@/lib/channels";
 import type { Program, SubscriptionMode } from "@/lib/types";
 
 const HORIZON_DAYS = 120;
@@ -26,8 +27,8 @@ function countFuturePrograms(programs: Program[], region: Region): number {
     const t = new Date(p.startAt).getTime();
     return t >= now - 86400000 && t <= horizon && !p.isRebroadcast;
   });
-  // 系列局の同時ネットは1話1件（地域代表）に集約して数える
-  return pickOnePerEpisode(inWindow, region).length;
+  // 系列局の同時ネットは1話1件（地域の種から得た放送局セットの代表）に集約して数える
+  return pickOnePerEpisode(inWindow, seedChannelsFromRegion(region)).length;
 }
 
 export async function POST(req: NextRequest) {

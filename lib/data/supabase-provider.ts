@@ -9,7 +9,7 @@ import type {
 } from "../types.ts";
 import { nextSeason, seasonOf, seasonSlug } from "../season.ts";
 import { airSlot } from "../format.ts";
-import { channelRank, isDisplayChannel, DEFAULT_REGION, type Region } from "../regions.ts";
+import { channelMatches, channelRankBy } from "../channels.ts";
 import type { ScheduleEntry } from "../types.ts";
 
 const CH_PRIORITY = ["TOKYO MX", "テレビ東京", "テレビ朝日", "日本テレビ", "TBS", "フジテレビ", "NHK", "BS11", "AT-X"];
@@ -181,7 +181,7 @@ export class SupabaseDataProvider implements DataProvider {
     return (data ?? []).map((g: any) => g.name);
   }
 
-  async getSchedule(region: Region = DEFAULT_REGION): Promise<ScheduleEntry[]> {
+  async getSchedule(channels: string[] = []): Promise<ScheduleEntry[]> {
     const now = new Date();
     const nowIso = now.toISOString();
     const horizon = new Date(now.getTime() + 8 * 86400000).toISOString();
@@ -198,11 +198,11 @@ export class SupabaseDataProvider implements DataProvider {
       .limit(8000);
     if (error) throw error;
 
-    // 作品ごとに「地域の代表局で最も早い放送」を代表として1件に集約（映画・配信・地域外ローカルは除外）
+    // 作品ごとに「選択局の代表局で最も早い放送」を代表として1件に集約（映画・配信・対象外ローカルは除外）
     const byWork = new Map<string, any>();
     for (const p of data ?? []) {
       if ((p as any).works.media === "movie") continue;
-      if (!isDisplayChannel((p as any).channels?.name ?? null, region)) continue;
+      if (!channelMatches((p as any).channels?.name ?? null, channels)) continue;
       const id = (p as any).works.id;
       const cur = byWork.get(id);
       if (!cur) {
@@ -210,8 +210,8 @@ export class SupabaseDataProvider implements DataProvider {
       } else if (
         p.start_at < cur.start_at ||
         (p.start_at === cur.start_at &&
-          channelRank((p as any).channels?.name ?? null, region) <
-            channelRank(cur.channels?.name ?? null, region))
+          channelRankBy((p as any).channels?.name ?? null, channels) <
+            channelRankBy(cur.channels?.name ?? null, channels))
       ) {
         byWork.set(id, p);
       }
@@ -229,7 +229,7 @@ export class SupabaseDataProvider implements DataProvider {
     }));
   }
 
-  async getUpcomingBroadcasts(limit: number, region: Region = DEFAULT_REGION): Promise<ScheduleEntry[]> {
+  async getUpcomingBroadcasts(limit: number, channels: string[] = []): Promise<ScheduleEntry[]> {
     const nowIso = new Date().toISOString();
     const { data } = await this.db
       .from("programs")
@@ -242,16 +242,16 @@ export class SupabaseDataProvider implements DataProvider {
       .order("start_at", { ascending: true })
       .limit(400);
 
-    // 作品ごとに「地域の代表局でいちばん早い放送」を選ぶ。
-    // 同じ作品が複数局・複数回ある中から、地域優先度→放送が早い順で1件に絞る。
+    // 作品ごとに「選択局の代表局でいちばん早い放送」を選ぶ。
+    // 同じ作品が複数局・複数回ある中から、選択局の優先度→放送が早い順で1件に絞る。
     const repByWork = new Map<string, ScheduleEntry>();
     const rankByWork = new Map<string, number>();
     for (const p of (data ?? []) as any[]) {
       if (p.works.media === "movie") continue;
-      // ネット配信・地域外ローカル局は「この後の放送」に出さない
-      if (!isDisplayChannel(p.channels?.name ?? null, region)) continue;
+      // ネット配信・対象外ローカル局は「この後の放送」に出さない
+      if (!channelMatches(p.channels?.name ?? null, channels)) continue;
       const id = p.works.id as string;
-      const rank = channelRank(p.channels?.name ?? null, region);
+      const rank = channelRankBy(p.channels?.name ?? null, channels);
       const prevRank = rankByWork.get(id);
       // より優先度の高い局があればそれを採用（同順位は先に来た＝早い放送を維持）
       if (prevRank != null && rank >= prevRank) continue;
