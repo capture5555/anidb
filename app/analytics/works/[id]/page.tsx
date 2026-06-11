@@ -88,12 +88,20 @@ export default async function WorkAnalyticsPage({
         <div className="min-w-0">
           <p className="text-xs font-bold text-accent">作品別 視聴分析</p>
           <h1 className="text-xl sm:text-2xl font-black leading-snug mt-1">{analysis.title}</h1>
-          <Link
-            href={`/works/${analysis.workId}`}
-            className="inline-block mt-1.5 text-xs font-bold text-primary hover:underline underline-offset-2"
-          >
-            作品ページへ →
-          </Link>
+          <div className="flex flex-wrap gap-3 mt-1.5">
+            <Link
+              href={`/works/${analysis.workId}`}
+              className="text-xs font-bold text-primary hover:underline underline-offset-2"
+            >
+              作品ページへ →
+            </Link>
+            <Link
+              href={`/analytics/compare?ids=${analysis.workId}`}
+              className="text-xs font-bold text-accent hover:underline underline-offset-2"
+            >
+              他作品と比較 →
+            </Link>
+          </div>
         </div>
       </header>
 
