@@ -44,6 +44,8 @@ import {
 } from "../lib/analytics/viewing.ts";
 import { getCohortXBuzzForSnapshot } from "../lib/analytics/xbuzz.ts";
 import { getOverallRankingUncached } from "../lib/analytics/overallRanking.ts";
+import { getGlobalGapUncached } from "../lib/analytics/globalGap.ts";
+import { getFastStartUncached } from "../lib/analytics/fastStart.ts";
 import { getAdminClient } from "../lib/supabase/admin.ts";
 import { seasonOf } from "../lib/season.ts";
 
@@ -74,6 +76,8 @@ const UNITS: Unit[] = [
   { key: "timeslot_heatmap", compute: getTimeslotHeatmapUncached, count: (r) => r?.cells?.length ?? 0 },
   { key: "x_cohort_buzz", compute: () => getCohortXBuzzForSnapshot(20), count: (r) => r?.length ?? 0 },
   { key: "overall_ranking", compute: getOverallRankingUncached, count: (r) => r?.length ?? 0 },
+  { key: "global_gap", compute: () => getGlobalGapUncached(30), count: (r) => r?.length ?? 0 },
+  { key: "fast_start", compute: () => getFastStartUncached(30), count: (r) => r?.length ?? 0 },
 ];
 
 /** 1ユニットを計算→保存。失敗しても throw せず結果オブジェクトを返す。 */
