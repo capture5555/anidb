@@ -72,7 +72,11 @@ function workToEvents(work: WorkDetail, opts: FeedOptions, region: Region = DEFA
   });
   // 系列局の同時ネットは1話1件（住んでいる地域の代表局）に集約
   return pickOnePerEpisode(inWindow, region).map((program) => {
-    const episode = work.episodes.find((e) => e.id === program.episodeId) ?? null;
+    // episode_id で紐付け。未リンク（話数レコード未作成等）の場合は話数(count)で代替マッチし、
+    // サブタイトルが取れるようにする（位置ベース紐付けの取りこぼし対策）。
+    const episode =
+      work.episodes.find((e) => e.id === program.episodeId) ??
+      (program.count != null ? work.episodes.find((e) => e.number === program.count) ?? null : null);
     const ev = buildEvent(work, program, episode, opts, appUrl());
     return {
       // 安定UID: 同じ放送回は毎回同じUID → Google側で更新・削除が正しく反映される

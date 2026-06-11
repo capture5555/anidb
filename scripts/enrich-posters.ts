@@ -28,7 +28,7 @@ async function main() {
   const year = args.find((a) => /^\d{4}$/.test(a));
 
   const db = getAdminClient();
-  let q = db.from("works").select("id, title, season_year, poster_url").order("title");
+  let q = db.from("works").select("id, title, season_year, poster_url, popularity").order("popularity", { ascending: false });
   if (year) q = q.eq("season_year", Number(year));
   // Supabaseの1000件上限を超えるため範囲取得
   let works: any[] = [];
@@ -40,9 +40,11 @@ async function main() {
   }
 
   // force時は全件、通常はポスター未設定のみ
-  const todo = force ? works : works.filter((w) => !w.poster_url);
+  // 人気度の高い作品を優先し、ENRICH_LIMIT 件に上限を設定（タイムアウト防止）
+  const limit = Number(process.env.ENRICH_LIMIT) || 300;
+  const todo = (force ? works : works.filter((w) => !w.poster_url)).slice(0, limit);
   console.log(
-    `対象 ${todo.length} / ${year ?? "全"} ${works.length} 作品${force ? "（強制再取得）" : "（未設定のみ）"}\n`,
+    `対象 ${todo.length} / ${year ?? "全"} ${works.length} 作品${force ? "（強制再取得）" : "（未設定のみ）"}（上限 ${limit} 件、人気度順）\n`,
   );
 
   let ok = 0;

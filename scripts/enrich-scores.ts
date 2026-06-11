@@ -49,15 +49,17 @@ async function main() {
   }
 
   // force時は全件、通常は「スコア未設定 OR あらすじ未設定 OR ジャンル未登録」のいずれか
-  const todo = force
+  // 人気度の高い作品を優先し（クエリは popularity DESC 済み）、ENRICH_LIMIT 件に上限を設定（タイムアウト防止）
+  const limit = Number(process.env.ENRICH_LIMIT) || 300;
+  const todo = (force
     ? works
     : works.filter(
         (w) =>
           w.anilist_score == null ||
           w.synopsis == null ||
           !worksWithGenres.has(w.id),
-      );
-  console.log(`対象 ${todo.length} / ${year ?? "全"} ${works.length} 作品\n`);
+      )).slice(0, limit);
+  console.log(`対象 ${todo.length} / ${year ?? "全"} ${works.length} 作品（上限 ${limit} 件、人気度順）\n`);
 
   let ok = 0;
   for (const w of todo) {
