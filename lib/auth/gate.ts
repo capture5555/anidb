@@ -28,6 +28,15 @@ function gatePassword(): string {
   return process.env.SITE_PASSWORD ?? "";
 }
 
+/**
+ * セッション世代。これを変えると（環境変数 SITE_SESSION_VERSION を更新すると）
+ * 既存の署名Cookieはすべて即座に無効化される（＝全員ログアウト）。
+ * パスワードを変えずにセッションだけ失効させたいときに使う。未設定なら "1"。
+ */
+function sessionVersion(): string {
+  return process.env.SITE_SESSION_VERSION ?? "1";
+}
+
 /** SITE_PASSWORD が設定されていればゲート有効。 */
 export function isGateEnabled(): boolean {
   return gatePassword().length > 0;
@@ -67,13 +76,13 @@ export function checkPassword(input: string): boolean {
   return p.length > 0 && timingSafeEqual(input, p);
 }
 
-/** 署名トークン `${expMs}.${sig}` を発行（鍵=SITE_PASSWORD）。 */
+/** 署名トークン `${expMs}.${sig}` を発行（鍵=SITE_PASSWORD、署名対象に世代を含む）。 */
 export async function signToken(expMs: number): Promise<string> {
-  const sig = await hmac(gatePassword(), String(expMs));
+  const sig = await hmac(gatePassword(), `${expMs}.${sessionVersion()}`);
   return `${expMs}.${sig}`;
 }
 
-/** 署名トークンを検証（署名一致 かつ 未失効。鍵=SITE_PASSWORD）。 */
+/** 署名トークンを検証（署名一致 かつ 未失効。鍵=SITE_PASSWORD、現在の世代で照合）。 */
 export async function verifyToken(token: string | undefined): Promise<boolean> {
   const secret = gatePassword();
   if (!secret || !token) return false;
@@ -83,7 +92,7 @@ export async function verifyToken(token: string | undefined): Promise<boolean> {
   const sig = token.slice(dot + 1);
   const expMs = Number(expStr);
   if (!Number.isFinite(expMs) || expMs < Date.now()) return false;
-  const expected = await hmac(secret, expStr);
+  const expected = await hmac(secret, `${expStr}.${sessionVersion()}`);
   return timingSafeEqual(sig, expected);
 }
 

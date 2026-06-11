@@ -27,6 +27,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (!checkPassword(password)) {
+    // 総当たりを緩やかに抑制する固定遅延（本格的なレート制限は Cloudflare WAF 併用）。
+    await new Promise((r) => setTimeout(r, 600));
     return NextResponse.redirect(
       `${origin}/gate?error=1&next=${encodeURIComponent(next)}`,
       { status: 303 },

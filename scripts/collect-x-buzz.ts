@@ -423,11 +423,17 @@ function parseNewsItems(
 async function generateDailyNews(): Promise<void> {
   const today = todayJst();
 
-  // 1日1回ガード。
+  // 1日1回ガード。ただし既存が「不出来（件数が少ない）」なら再生成して上書きする
+  // （recordAiComment は append なので、より良い最新行が表示・履歴の先頭になる）。
   const existing = await getLatestAiComment("news", today);
-  if (existing) {
-    console.log(`[collect-x-buzz] ニュース: 本日(${today})分は生成済みのためスキップ`);
+  const existingItems = (existing?.meta as { items?: unknown })?.items;
+  const existingCount = Array.isArray(existingItems) ? existingItems.length : 0;
+  if (existing && existingCount >= 4) {
+    console.log(`[collect-x-buzz] ニュース: 本日(${today})分は生成済み(${existingCount}件)のためスキップ`);
     return;
+  }
+  if (existing) {
+    console.log(`[collect-x-buzz] ニュース: 本日分が${existingCount}件と少ないため再生成します`);
   }
 
   const query =
