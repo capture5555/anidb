@@ -16,6 +16,7 @@ import type { GenreInsight } from "./genres.ts";
 import type { RatedWork } from "../analytics.ts";
 import type { GlobalGapRow } from "./globalGap.ts";
 import type { FastStartRow } from "./fastStart.ts";
+import type { RiserRow } from "./risers.ts";
 
 const REACTION_LABEL: Record<ReactionCategory, string> = {
   laugh: "笑い",
@@ -584,4 +585,17 @@ export function seasonHeatmapComment(series: RetentionSeries[]): string | null {
   }
 
   return parts.join("。") + "。";
+}
+
+/**
+ * 急上昇アラートセクションのひとことメモ（視聴分析タブ用）。
+ * 最も伸び率が高い作品と、その最新話のコメント数を指摘する。
+ * データが空の場合は null。
+ */
+export function risersComment(rows: RiserRow[]): string | null {
+  if (rows.length === 0) return null;
+  const top = rows[0];
+  const ep = top.latestLabel ? top.latestLabel : "最新話";
+  const pct = Math.round(top.deltaPct);
+  return `直近で最も伸びたのは『${top.title}』${ep}（前話まで平均比+${pct}%・${top.latestComments.toLocaleString()}コメント）。`;
 }
