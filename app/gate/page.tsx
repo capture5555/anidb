@@ -5,8 +5,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "ログイン" };
 
 /**
- * 入口パスワード入力ページ。/api/gate へ POST する。
- * ミドルウェアが未認証アクセスをここへ集約する。
+ * 入口パスワード入力ページ（パスワードのみ・ユーザー名なし）。/api/gate へ POST する。
  */
 export default async function GatePage({
   searchParams,
@@ -22,7 +21,7 @@ export default async function GatePage({
       <div className="card w-full max-w-sm p-6 sm:p-8">
         <h1 className="text-lg font-black text-ink mb-1">アニメ作品データベース</h1>
         <p className="text-xs text-muted mb-5">
-          このサイトはパスワードで保護されています。配布されたパスワードを入力してください。
+          このサイトはパスワードで保護されています。パスワードを入力してください。
         </p>
         <form method="post" action="/api/gate" className="space-y-3">
           <input type="hidden" name="next" value={next} />
@@ -36,9 +35,7 @@ export default async function GatePage({
             className="w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-primary"
           />
           {hasError && (
-            <p className="text-xs font-bold text-rose-600">
-              パスワードが違うか、有効期限・利用上限を超えています。
-            </p>
+            <p className="text-xs font-bold text-rose-600">パスワードが違います。</p>
           )}
           <button
             type="submit"
