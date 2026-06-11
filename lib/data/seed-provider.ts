@@ -9,7 +9,7 @@ import type {
 } from "../types.ts";
 import { nextSeason, seasonOf, seasonSlug } from "../season.ts";
 import { airSlot } from "../format.ts";
-import type { Region } from "../regions.ts";
+import { channelMatches, channelRankBy } from "../channels.ts";
 import type { ScheduleEntry } from "../types.ts";
 
 function toSummary(w: WorkDetail): WorkSummary {
@@ -111,14 +111,24 @@ export class SeedDataProvider implements DataProvider {
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ja"));
   }
 
-  async getSchedule(_region?: Region): Promise<ScheduleEntry[]> {
+  async getSchedule(channels: string[] = []): Promise<ScheduleEntry[]> {
     const now = Date.now();
     const entries: ScheduleEntry[] = [];
     for (const w of SEED_WORKS) {
       if (w.status !== "airing" || w.media === "movie") continue;
+      // 選択局（空なら配信以外の全放送波）で最も早い放送を代表に選ぶ。
       const next = w.programs
-        .filter((p) => !p.isRebroadcast && new Date(p.startAt).getTime() >= now)
-        .sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
+        .filter(
+          (p) =>
+            !p.isRebroadcast &&
+            new Date(p.startAt).getTime() >= now &&
+            channelMatches(p.channelName, channels),
+        )
+        .sort(
+          (a, b) =>
+            channelRankBy(a.channelName, channels) - channelRankBy(b.channelName, channels) ||
+            a.startAt.localeCompare(b.startAt),
+        )[0];
       if (!next) continue;
       entries.push({
         workId: w.id,
@@ -134,8 +144,8 @@ export class SeedDataProvider implements DataProvider {
     return entries;
   }
 
-  async getUpcomingBroadcasts(limit: number, _region?: Region): Promise<ScheduleEntry[]> {
-    const all = await this.getSchedule();
+  async getUpcomingBroadcasts(limit: number, channels: string[] = []): Promise<ScheduleEntry[]> {
+    const all = await this.getSchedule(channels);
     return all.sort((a, b) => a.startAt.localeCompare(b.startAt)).slice(0, limit);
   }
 }

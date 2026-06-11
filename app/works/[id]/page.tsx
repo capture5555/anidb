@@ -16,6 +16,11 @@ import { formatSeason } from "@/lib/season";
 import { formatAirShort, formatWeekly } from "@/lib/format";
 import { pickOnePerEpisode } from "@/lib/programs";
 import { parseRegion, REGION_COOKIE } from "@/lib/regions";
+import {
+  parseChannelsCookie,
+  seedChannelsFromRegion,
+  CHANNELS_COOKIE,
+} from "@/lib/channels";
 
 export async function generateMetadata({
   params,
@@ -40,10 +45,16 @@ export default async function WorkDetailPage({
   const work = await (await getDataProvider()).getWork(id);
   if (!work) notFound();
 
-  const region = parseRegion((await cookies()).get(REGION_COOKIE)?.value);
+  // 放送局選択を Cookie から取得。未設定なら（レガシー）地域の種から既定セットを使う。
+  const cookieStore = await cookies();
+  const cookieChannels = parseChannelsCookie(cookieStore.get(CHANNELS_COOKIE)?.value);
+  const channels =
+    cookieChannels.length > 0
+      ? cookieChannels
+      : seedChannelsFromRegion(parseRegion(cookieStore.get(REGION_COOKIE)?.value));
 
-  // 系列局の同時ネットで同じ話数が並ぶため、1話1件（地域の代表局）に整理
-  const repPrograms = pickOnePerEpisode(work.programs.filter((p) => !p.isRebroadcast), region);
+  // 系列局の同時ネットで同じ話数が並ぶため、1話1件（選択局の代表）に整理
+  const repPrograms = pickOnePerEpisode(work.programs.filter((p) => !p.isRebroadcast), channels);
   const firstProgram = repPrograms[0] ?? work.programs[0] ?? null;
   const upcomingPrograms = repPrograms
     .filter((p) => new Date(p.startAt).getTime() >= Date.now() - 1000 * 60 * 60 * 24)

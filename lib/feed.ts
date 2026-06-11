@@ -4,8 +4,10 @@ import { getDataProvider } from "./data/provider.ts";
 import { buildEvent } from "./sync/eventBuilder.ts";
 import { pickOnePerEpisode } from "./programs.ts";
 import { buildIcs, type IcsEvent } from "./ics.ts";
-import { DEFAULT_REGION, isDisplayChannel, isStreamingChannel, type Region } from "./regions.ts";
+import { isStreamingChannel } from "./regions.ts";
+import { channelMatches, seedChannelsFromRegion } from "./channels.ts";
 import { getUserRegion } from "./userRegion.ts";
+import { getUserChannels } from "./userChannels.ts";
 import type { Program, WorkDetail } from "./types.ts";
 
 /**
@@ -61,7 +63,7 @@ function appUrl(): string {
 }
 
 /** 1作品ぶんの放送回を窓でフィルタし、ICSイベントへ変換する */
-function workToEvents(work: WorkDetail, opts: FeedOptions, region: Region = DEFAULT_REGION): IcsEvent[] {
+function workToEvents(work: WorkDetail, opts: FeedOptions, channels: string[] = []): IcsEvent[] {
   const now = Date.now();
   const from = now - PAST_DAYS * 86400000;
   const to = now + FUTURE_DAYS * 86400000;
@@ -70,13 +72,13 @@ function workToEvents(work: WorkDetail, opts: FeedOptions, region: Region = DEFA
     const t = new Date(p.startAt).getTime();
     return t >= from && t <= to && !p.isRebroadcast && !isStreamingChannel(p.channelName);
   });
-  // その地域で視聴できる放送（関東ならMX/テレ東/日テレ系…＋NHK）があるなら、それだけに絞る。
-  // ＝他地域局(関西テレビ等)やBSの重複を出さない。地域で見られる放送が1つも無い作品だけ、
+  // 選択した放送局で視聴できる放送があるなら、それだけに絞る。
+  // ＝選択外の局(他地域ローカル等)やBSの重複を出さない。選択局で見られる放送が1つも無い作品だけ、
   //   カレンダーから消さないよう全放送を残す（BSのみ等の作品の保険）。
-  const regional = base.filter((p) => isDisplayChannel(p.channelName, region));
+  const regional = base.filter((p) => channelMatches(p.channelName, channels));
   const inWindow = regional.length > 0 ? regional : base;
-  // 同じ回の系列ネットは1話1件（地域の代表局）に集約
-  return pickOnePerEpisode(inWindow, region).map((program) => {
+  // 同じ回の系列ネットは1話1件（選択局の代表）に集約
+  return pickOnePerEpisode(inWindow, channels).map((program) => {
     // episode_id で紐付け。未リンク（話数レコード未作成等）の場合は話数(count)で代替マッチし、
     // サブタイトルが取れるようにする（位置ベース紐付けの取りこぼし対策）。
     const episode =
@@ -99,7 +101,10 @@ function workToEvents(work: WorkDetail, opts: FeedOptions, region: Region = DEFA
 export async function buildUserFeed(userId: string): Promise<string> {
   const db = getAdminClient();
   const provider = await getDataProvider();
-  const region = await getUserRegion(userId);
+  // グローバル放送局選択を優先。未設定（空）なら（レガシー）地域の種からの既定セットへフォールバック。
+  const userChannels = await getUserChannels(userId);
+  const channels =
+    userChannels.length > 0 ? userChannels : seedChannelsFromRegion(await getUserRegion(userId));
   const { data: subs } = await db
     .from("subscriptions")
     .select("work_id, mode, include_subtitle, include_channel, include_url")
@@ -119,7 +124,7 @@ export async function buildUserFeed(userId: string): Promise<string> {
           includeChannel: row.include_channel,
           includeUrl: row.include_url,
         },
-        region,
+        channels,
       ),
     );
   }

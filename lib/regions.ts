@@ -27,10 +27,10 @@ export const REGION_NOTES: Record<Region, string> = {
 };
 
 // 地上波の全国放送（NHK）。地上波なので全地域で「放送局」として番組表に出す。
-const NHK_TERRESTRIAL = ["NHK総合", "NHK Eテレ", "NHK"];
+export const NHK_TERRESTRIAL = ["NHK総合", "NHK Eテレ", "NHK"];
 
 // BS/衛星。BS・配信地域でのみ番組表・この後・カレンダーに出す（地上波地域には出さない）。
-const BS_CHANNELS = [
+export const BS_CHANNELS = [
   "BS11",
   "BSフジ",
   "BS日テレ",
@@ -44,7 +44,7 @@ const BS_CHANNELS = [
 
 // 番組表・「この後の放送」・カレンダーには出さないチャンネル（ネット配信＋AT-X(CS有料)）。
 // 代表チャンネルのランク付け・将来用途のため名前は保持する。
-const STREAMING = [
+export const STREAMING = [
   "AT-X",
   "ABEMA",
   "dアニメストア",
@@ -61,7 +61,7 @@ const STREAMING = [
 ];
 
 // 各地域で優先する地上波局（上にあるほど優先）。
-const REGION_LOCALS: Record<Region, string[]> = {
+export const REGION_LOCALS: Record<Region, string[]> = {
   kanto: [
     "TOKYO MX",
     "テレビ東京",
@@ -106,7 +106,7 @@ const REGION_LOCALS: Record<Region, string[]> = {
  * - 地上波地域(関東/関西/中部): 地域の地上波ローカル ＋ NHK(地上波)。BS・配信は出さない。
  * - BS・配信: NHK(地上波) ＋ BS。
  */
-function displayList(region: Region): string[] {
+export function displayList(region: Region): string[] {
   if (region === "bs") return [...NHK_TERRESTRIAL, ...BS_CHANNELS];
   return [...REGION_LOCALS[region], ...NHK_TERRESTRIAL];
 }
