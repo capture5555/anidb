@@ -833,6 +833,26 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
         console.log(
           `[collect-x-buzz] 話数別 ok: ${info.workTitle} ${info.epLabel} volume=${buzz.volume_score}`,
         );
+        // 各話の声を履歴にも残す（ai_comments テーブル。失敗は無視される）。
+        try {
+          const cleanBody = cleanXSummary(res.answer ? res.answer.trim().slice(0, SUMMARY_MAX) : null);
+          if (cleanBody) {
+            await recordAiComment({
+              scope: "episode",
+              refId: episodeId,
+              title: `${info.workTitle} ${info.epLabel}`,
+              body: cleanBody,
+              meta: {
+                workId: info.workId,
+                episodeId,
+                volume: buzz.volume_score,
+                sentiment: buzz.sentiment,
+              },
+            });
+          }
+        } catch {
+          /* 履歴記録の失敗は本体に影響させない */
+        }
       }
 
       // 話数レベルの生ポスト harvest（episode_id 付き。テーブル未作成なら穏当にスキップ）。

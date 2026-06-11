@@ -70,38 +70,41 @@ export default async function HomePage({
               ニュース履歴 →
             </Link>
           </div>
-          {dailyNews.body && (
+          {dailyNews.body && !/^\d{4}-\d{2}-\d{2}のアニメ業界ニュース/.test(dailyNews.body) && (
             <p className="text-xs text-ink-soft leading-relaxed mb-3">{dailyNews.body}</p>
           )}
-          <ol className="space-y-2">
-            {dailyNews.items.map((item, i) => (
-              <li key={i} className="flex gap-2 items-start">
-                <span className="text-[0.68rem] font-black text-accent tabular-nums w-4 shrink-0 pt-px">
-                  {i + 1}
-                </span>
-                <div className="min-w-0">
-                  {item.url ? (
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-xs font-bold text-ink hover:text-primary transition leading-snug line-clamp-2"
-                    >
-                      {item.title}
-                    </a>
-                  ) : (
-                    <p className="text-xs font-bold text-ink leading-snug line-clamp-2">
-                      {item.title}
-                    </p>
-                  )}
-                  {item.summary && item.summary !== item.title && (
-                    <p className="text-[0.72rem] text-muted leading-snug mt-0.5 line-clamp-3">
-                      {item.summary}
-                    </p>
-                  )}
-                </div>
-              </li>
-            ))}
+          <ol className="space-y-1.5">
+            {dailyNews.items.map((item, i) => {
+              const hasSummary = !!(item.summary && item.summary !== item.title);
+              return (
+                <li key={i} className="flex gap-2 items-start">
+                  <span className="text-[0.68rem] font-black text-accent tabular-nums w-4 shrink-0 pt-px">
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    {item.url ? (
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-xs font-bold text-ink hover:text-primary transition leading-snug line-clamp-2"
+                      >
+                        {item.title}
+                      </a>
+                    ) : (
+                      <p className="text-xs font-bold text-ink leading-snug line-clamp-2">
+                        {item.title}
+                      </p>
+                    )}
+                    {hasSummary && (
+                      <p className="text-[0.72rem] text-muted leading-snug mt-0.5 line-clamp-3">
+                        {item.summary}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ol>
         </section>
       )}
@@ -117,7 +120,7 @@ export default async function HomePage({
 
       {/* 検索・ジャンル絞り込み */}
       <div className="pt-4">
-        <FilterBar tab={tab} q={q} genre={genre} genres={genres} />
+        <FilterBar tab={tab} q={q} genre={genre} genres={[]} />
       </div>
 
       {/* 件数・条件 */}
