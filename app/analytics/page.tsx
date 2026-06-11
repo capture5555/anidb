@@ -52,10 +52,12 @@ import {
   getXBuzzVsJikkyo,
   getEpisodeBuzzLeaders,
   getXBuzzTopicLeaders,
+  getAwarenessHeatScatter,
   type CohortXBuzz,
   type XBuzzVsJikkyo,
   type EpisodeBuzzLeader,
   type XTopicLeader,
+  type AwarenessHeatRow,
 } from "@/lib/analytics/xbuzz";
 import { getSeasonComment } from "@/lib/analytics/seasonComment";
 import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight, compareInsight, compareStaffInsight, toPercentileRank } from "@/lib/analytics/insights";
@@ -86,6 +88,7 @@ import {
   popularRankingComment,
   ratedRankingComment,
   genreTrendsComment,
+  awarenessHeatComment,
 } from "@/lib/analytics/sectionComments";
 import {
   getOverallRanking,
@@ -857,11 +860,12 @@ function TopicCloud({ topics }: { topics: XTopicLeader[] }) {
 }
 
 async function BuzzSection() {
-  const [cohort, vsJikkyo, epLeaders, topics] = await Promise.all([
+  const [cohort, vsJikkyo, epLeaders, topics, awarenessHeat] = await Promise.all([
     getCohortXBuzz(20).catch((): CohortXBuzz[] => []),
     getXBuzzVsJikkyo(30).catch((): XBuzzVsJikkyo[] => []),
     getEpisodeBuzzLeaders(12).catch((): EpisodeBuzzLeader[] => []),
     getXBuzzTopicLeaders(24).catch((): XTopicLeader[] => []),
+    getAwarenessHeatScatter(40).catch((): AwarenessHeatRow[] => []),
   ]);
 
   // センチメント分布（ランキング母集団の内訳）。
@@ -1051,6 +1055,43 @@ async function BuzzSection() {
         )}
       </section>
 
+      {/* 認知 × 熱量 象限マップ */}
+      <section className="card p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+          <h2 className="section-title text-lg">認知 × 熱量 象限マップ</h2>
+          {awarenessHeat.length > 0 && (
+            <CsvExportButton
+              filename="認知熱量象限マップ"
+              headers={["作品", "認知(ウォッチャー数)", "熱量(volume)", "象限"]}
+              rows={awarenessHeat.map((r) => [
+                r.title,
+                r.popularity,
+                r.volume,
+                {
+                  total_hit: "総合ヒット",
+                  fan_darkhorse: "ファン型ダークホース",
+                  general_pr: "一般・PR先行",
+                  watching: "様子見",
+                }[r.quadrant],
+              ])}
+            />
+          )}
+        </div>
+        <p className="text-xs text-muted mb-4">
+          横＝認知度（Annictウォッチャー数・√スケール）、縦＝熱量（Xバズ volume 0〜5）。
+          中央の十字が象限境界（認知は中央値、熱量は3）。
+          広報・製作委員会向けの意思決定可視化です。
+        </p>
+        <SectionNote text={awarenessHeatComment(awarenessHeat)} />
+        {awarenessHeat.length === 0 ? (
+          <p className="text-sm text-muted">
+            データがまだ十分に集まっていません。収集が進むと表示されます。
+          </p>
+        ) : (
+          <AwarenessHeatScatterChart rows={awarenessHeat} />
+        )}
+      </section>
+
       <p className="text-xs text-muted leading-relaxed">
         ※ データは3hごとに収集・数日かけて蓄積。Grok の x_search 分析に基づく参考値であり、テレビ視聴率ではありません。
       </p>
@@ -1135,6 +1176,135 @@ function BuzzJikkyoScatter({ points }: { points: XBuzzVsJikkyo[] }) {
             {v}
           </text>
         ))}
+      </svg>
+    </div>
+  );
+}
+
+/** 認知度(x, √スケール) × Xバズ熱量(y, 0〜5) の象限マップ（インラインSVG）。 */
+function AwarenessHeatScatterChart({ rows }: { rows: AwarenessHeatRow[] }) {
+  const W = 560;
+  const H = 340;
+  const PAD = { top: 20, right: 20, bottom: 40, left: 44 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+
+  // X軸: popularity の √スケール
+  const maxPop = Math.max(1, ...rows.map((r) => r.popularity));
+  const sqrtMax = Math.sqrt(maxPop);
+  const px = (pop: number) =>
+    PAD.left + (Math.sqrt(Math.max(0, pop)) / sqrtMax) * innerW;
+
+  // Y軸: volume 0〜5（上が高熱量）
+  const py = (vol: number) =>
+    PAD.top + (1 - Math.max(0, Math.min(5, vol)) / 5) * innerH;
+
+  // 中央値と境界線
+  const pops = rows.map((r) => r.popularity).sort((a, b) => a - b);
+  const mid = Math.floor(pops.length / 2);
+  const popMedian =
+    pops.length % 2 === 1
+      ? pops[mid]
+      : ((pops[mid - 1] ?? 0) + (pops[mid] ?? 0)) / 2;
+  const boundX = px(popMedian);
+  const boundY = py(3); // 熱量境界 = 3
+
+  // 象限ごとの色
+  const QUAD_COLOR: Record<AwarenessHeatRow["quadrant"], string> = {
+    total_hit: "#e8482f",
+    fan_darkhorse: "#f5a623",
+    general_pr: "#2f6fdb",
+    watching: "#9ca3af",
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full min-w-[480px]"
+        role="img"
+        aria-label="認知度とXバズ熱量の象限散布図"
+      >
+        {/* 象限背景 */}
+        <rect x={boundX} y={PAD.top} width={W - PAD.right - boundX} height={boundY - PAD.top}
+          fill="#e8482f" fillOpacity="0.04" />
+        <rect x={PAD.left} y={PAD.top} width={boundX - PAD.left} height={boundY - PAD.top}
+          fill="#f5a623" fillOpacity="0.04" />
+        <rect x={boundX} y={boundY} width={W - PAD.right - boundX} height={H - PAD.bottom - boundY}
+          fill="#2f6fdb" fillOpacity="0.04" />
+        <rect x={PAD.left} y={boundY} width={boundX - PAD.left} height={H - PAD.bottom - boundY}
+          fill="#9ca3af" fillOpacity="0.04" />
+
+        {/* 軸 */}
+        <line x1={PAD.left} x2={PAD.left} y1={PAD.top} y2={H - PAD.bottom} stroke="#e8eaef" />
+        <line x1={PAD.left} x2={W - PAD.right} y1={H - PAD.bottom} y2={H - PAD.bottom} stroke="#e8eaef" />
+
+        {/* 象限境界（中央十字） */}
+        <line x1={boundX} x2={boundX} y1={PAD.top} y2={H - PAD.bottom}
+          stroke="#c4c8d4" strokeDasharray="4 3" strokeWidth="1" />
+        <line x1={PAD.left} x2={W - PAD.right} y1={boundY} y2={boundY}
+          stroke="#c4c8d4" strokeDasharray="4 3" strokeWidth="1" />
+
+        {/* 象限ラベル注記 */}
+        <text x={W - PAD.right - 4} y={PAD.top + 14} textAnchor="end" fontSize="9" fill="#e8482f" fontWeight="600">
+          総合ヒット
+        </text>
+        <text x={PAD.left + 4} y={PAD.top + 14} textAnchor="start" fontSize="9" fill="#f5a623" fontWeight="600">
+          ファン型ダークホース
+        </text>
+        <text x={W - PAD.right - 4} y={H - PAD.bottom - 8} textAnchor="end" fontSize="9" fill="#2f6fdb" fontWeight="600">
+          一般・PR先行
+        </text>
+        <text x={PAD.left + 4} y={H - PAD.bottom - 8} textAnchor="start" fontSize="9" fill="#9ca3af" fontWeight="600">
+          様子見
+        </text>
+
+        {/* 軸ラベル */}
+        <text x={PAD.left + innerW / 2} y={H - 6} textAnchor="middle" fontSize="10" fill="#8a909c">
+          認知度（Annictウォッチャー数・√スケール）→
+        </text>
+
+        {/* 点 */}
+        {rows.map((r) => (
+          <circle
+            key={r.workId}
+            cx={px(r.popularity).toFixed(1)}
+            cy={py(r.volume).toFixed(1)}
+            r="5"
+            fill={QUAD_COLOR[r.quadrant]}
+            fillOpacity="0.72"
+          >
+            <title>{`${r.title} ─ 認知${r.popularity.toLocaleString()} / 熱量${Math.round(r.volume * 10) / 10}/5 (${
+              { total_hit: "総合ヒット", fan_darkhorse: "ファン型ダークホース", general_pr: "一般・PR先行", watching: "様子見" }[r.quadrant]
+            })`}</title>
+          </circle>
+        ))}
+
+        {/* Y軸目盛 */}
+        {[0, 1, 2, 3, 4, 5].map((v) => (
+          <text
+            key={v}
+            x={PAD.left - 6}
+            y={py(v) + 3.5}
+            textAnchor="end"
+            fontSize="9"
+            fill="#8a909c"
+          >
+            {v}
+          </text>
+        ))}
+
+        {/* Y軸ラベル（縦書き代替: 回転テキスト） */}
+        <text
+          x={10}
+          y={PAD.top + innerH / 2}
+          textAnchor="middle"
+          fontSize="10"
+          fill="#8a909c"
+          transform={`rotate(-90, 10, ${PAD.top + innerH / 2})`}
+        >
+          熱量（Xバズ）↑
+        </text>
       </svg>
     </div>
   );
