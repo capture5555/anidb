@@ -15,6 +15,7 @@ import type { StudioScorecard } from "./studios.ts";
 import type { GenreInsight } from "./genres.ts";
 import type { RatedWork } from "../analytics.ts";
 import type { GlobalGapRow } from "./globalGap.ts";
+import type { FastStartRow } from "./fastStart.ts";
 
 const REACTION_LABEL: Record<ReactionCategory, string> = {
   laugh: "笑い",
@@ -460,6 +461,27 @@ export function awarenessHeatComment(rows: AwarenessHeatRow[]): string | null {
       : `（全${total}作品）`;
 
   return parts.join("。") + suffix + "。";
+}
+
+/**
+ * 初速ランキングセクションのひとことメモ（視聴分析タブ用）。
+ * 最も立ち上がりが強い作品と、第1話の実況コメント数を指摘する。
+ */
+export function fastStartComment(rows: FastStartRow[]): string | null {
+  if (rows.length === 0) return null;
+  const top = rows[0];
+  if (top.ep1Comments <= 0) return null;
+
+  const parts: string[] = [];
+  parts.push(`最も立ち上がりが強いのは『${top.title}』（初速スコア ${top.score.toFixed(0)}点）`);
+  parts.push(`第1話の実況が${top.ep1Comments.toLocaleString()}コメントで突出`);
+
+  if (rows.length >= 2) {
+    const runner = rows[1];
+    parts.push(`次点は『${runner.title}』（${runner.score.toFixed(0)}点）`);
+  }
+
+  return parts.join("。") + "。";
 }
 
 /**

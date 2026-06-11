@@ -31,6 +31,7 @@ import {
   getReactionRatios,
   type ReactionRatioWork,
 } from "@/lib/analytics/viewing";
+import { getFastStart, type FastStartRow } from "@/lib/analytics/fastStart";
 import {
   getCoolScorecard,
   QUADRANT_LABELS,
@@ -90,6 +91,7 @@ import {
   genreTrendsComment,
   awarenessHeatComment,
   globalGapComment,
+  fastStartComment,
 } from "@/lib/analytics/sectionComments";
 import {
   getOverallRanking,
@@ -355,7 +357,7 @@ function OverallRankingCard({ rows }: { rows: OverallRankingRow[] }) {
 /* ================================================================ 視聴分析 */
 
 async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
-  const [retention, hot, peaks, ratios, timeslots, overallRanking] = await Promise.all([
+  const [retention, hot, peaks, ratios, timeslots, overallRanking, fastStart] = await Promise.all([
     basis === "annict"
       ? getRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] }))
       : getJikkyoRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] })),
@@ -364,6 +366,7 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
     getReactionRatios(1000).catch(() => []),
     getTimeslotHeatmap().catch((): TimeslotHeatmap => ({ cells: [], maxAvg: 0 })),
     getOverallRanking().catch((): OverallRankingRow[] => []),
+    getFastStart(30).catch((): FastStartRow[] => []),
   ]);
 
   return (
@@ -513,6 +516,11 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
 
       {/* 放送曜日×時間帯ヒートマップ */}
       <TimeslotHeatmapCard heatmap={timeslots} />
+
+      {/* 初速ランキング（立ち上がりの強さ） */}
+      {fastStart.length > 0 && (
+        <FastStartRankingCard rows={fastStart} />
+      )}
 
       <p className="text-xs text-muted leading-relaxed">
         ※ データソース: Annict（記録数）・ニコニコ実況 過去ログAPI（コメント）。
@@ -740,6 +748,120 @@ function RetentionMiniCard({
         </span>
       </div>
     </Link>
+  );
+}
+
+/* ================================================================ 初速ランキング */
+
+/**
+ * 初速ランキング（立ち上がりの強さ）カード（サーバーコンポーネント）。
+ * 宣伝・製作委員会向け: 第1話の実況コメント数とXバズをコホート内パーセンタイルで正規化し合成したスコアを表示。
+ */
+function FastStartRankingCard({ rows }: { rows: FastStartRow[] }) {
+  const comment = fastStartComment(rows);
+
+  const csvHeaders = ["順位", "作品名", "初速スコア", "実況初速%ile", "X初速%ile", "第1話実況コメント数"];
+  const csvRows = rows.map((r, i) => [
+    i + 1,
+    r.title,
+    r.score,
+    r.jikkyoPctl,
+    r.xPctl ?? "",
+    r.ep1Comments,
+  ] as (string | number)[]);
+
+  const maxEp1 = Math.max(1, ...rows.map((r) => r.ep1Comments));
+
+  return (
+    <section className="card p-5 sm:p-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+        <h2 className="section-title text-lg">初速ランキング（立ち上がりの強さ）</h2>
+        <CsvExportButton filename="fast_start_ranking.csv" headers={csvHeaders} rows={csvRows} />
+      </div>
+      <p className="text-xs text-muted mb-1">
+        宣伝・製作委員会向け: 第1話放送直後の盛り上がりを「実況初速」と「X初速」でスコア化。
+        今期クール内の相対的な立ち上がりの強さを示します。
+      </p>
+      <p className="text-[0.68rem] text-muted mb-4 leading-relaxed">
+        ※ 初速＝第1話の実況コメント数とXバズのクール内相対位置（パーセンタイル）。スコア＝実況初速%×0.6 + X初速%×0.4（X欠測時は実況のみで再正規化）。
+      </p>
+      <SectionNote text={comment} />
+      <ol className="divide-y divide-line">
+        {rows.slice(0, 20).map((row, i) => (
+          <li key={row.workId} className="flex items-start gap-3 py-2.5">
+            <span
+              className={`w-6 text-center font-black tabular-nums shrink-0 mt-1 ${
+                i < 3 ? "text-accent" : "text-muted"
+              }`}
+            >
+              {i + 1}
+            </span>
+            <Link href={`/analytics/works/${row.workId}`} className="shrink-0">
+              <WorkCover
+                id={row.workId}
+                title={row.title}
+                url={row.posterUrl}
+                className="w-9 h-12 rounded-md"
+              />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <Link
+                href={`/analytics/works/${row.workId}`}
+                className="block text-sm font-bold text-ink hover:text-primary transition truncate"
+              >
+                {row.title}
+              </Link>
+              {/* パーセンタイル内訳バー（実況初速 / X初速） */}
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 max-w-[260px]">
+                {(
+                  [
+                    { label: "実況", value: row.jikkyoPctl, color: "#2f6fdb" },
+                    { label: "X", value: row.xPctl, color: "#f5a623" },
+                  ] as { label: string; value: number | null; color: string }[]
+                ).map(({ label, value, color }) => (
+                  <div key={label}>
+                    <div className="text-[0.55rem] text-muted leading-none mb-0.5">{label}</div>
+                    <div className="h-1.5 rounded-full bg-line overflow-hidden">
+                      {value != null ? (
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${value}%`, backgroundColor: color }}
+                        />
+                      ) : (
+                        <div className="h-full rounded-full bg-line" style={{ width: "0%" }} />
+                      )}
+                    </div>
+                    <div className="text-[0.55rem] text-muted tabular-nums mt-0.5 text-right">
+                      {value != null ? Math.round(value) : "—"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* 第1話実況コメント数バー */}
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <span className="text-[0.6rem] text-muted shrink-0">第1話</span>
+                <div className="flex-1 h-1.5 rounded-full bg-line overflow-hidden max-w-[120px]">
+                  <div
+                    className="h-full rounded-full bg-accent/50"
+                    style={{ width: `${Math.min(100, (row.ep1Comments / maxEp1) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-[0.62rem] font-bold tabular-nums text-ink-soft shrink-0">
+                  {row.ep1Comments.toLocaleString()}
+                </span>
+                <span className="text-[0.55rem] text-muted shrink-0">コメ</span>
+              </div>
+            </div>
+            <div className="shrink-0 text-right min-w-[3rem]">
+              <span className="block font-black text-accent tabular-nums text-base">
+                {row.score.toFixed(0)}
+              </span>
+              <span className="block text-[0.62rem] text-muted">pts</span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
