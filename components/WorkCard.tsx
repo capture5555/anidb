@@ -3,6 +3,7 @@ import type { WorkSummary } from "@/lib/types";
 import { WorkCover } from "./WorkCover";
 import { StatusBadge } from "./StatusBadge";
 import { formatPopularity } from "@/lib/format";
+import { genreJa } from "@/lib/genres";
 
 export function WorkCard({ work }: { work: WorkSummary }) {
   return (
@@ -36,7 +37,7 @@ export function WorkCard({ work }: { work: WorkSummary }) {
           </h3>
           {work.genres.length > 0 && (
             <p className="text-[0.72rem] text-muted truncate mt-auto pt-1">
-              {work.genres.slice(0, 3).join("・")}
+              {work.genres.slice(0, 3).map(genreJa).join("・")}
             </p>
           )}
         </div>

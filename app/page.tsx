@@ -8,6 +8,7 @@ import { UpcomingStrip } from "@/components/UpcomingStrip";
 import type { ListTab } from "@/lib/types";
 import { seasonOf, nextSeason, formatSeason } from "@/lib/season";
 import { getLatestDailyNews } from "@/lib/analytics/news";
+import { genreJa } from "@/lib/genres";
 
 const VALID_TABS: ListTab[] = ["this_season", "next_season", "movie"];
 
@@ -119,7 +120,7 @@ export default async function HomePage({
 
       {/* 件数・条件 */}
       <p className="text-sm text-ink-soft pt-4 pb-4">
-        {q ? `「${q}」の検索結果 — ${total}件` : genre ? `ジャンル「${genre}」 — ${total}件` : TAB_LEAD[tab]}
+        {q ? `「${q}」の検索結果 — ${total}件` : genre ? `ジャンル「${genreJa(genre)}」 — ${total}件` : TAB_LEAD[tab]}
       </p>
 
       {/* グリッド */}

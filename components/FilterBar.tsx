@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ListTab } from "@/lib/types";
+import { genreJa } from "@/lib/genres";
 
 /**
  * 検索フォーム + ジャンル絞り込み（サーバー描画・JS不要のGETフォーム）。
@@ -67,7 +68,7 @@ export function FilterBar({
                   : "bg-surface border border-line text-ink-soft hover:border-line-strong"
               }`}
             >
-              {g}
+              {genreJa(g)}
             </Link>
           ))}
         </div>
