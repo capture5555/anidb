@@ -31,6 +31,7 @@ import {
   getStaffScorecardsUncached,
 } from "../lib/analytics/people.ts";
 import { getGenreInsightsUncached } from "../lib/analytics/genres.ts";
+import { getFranchiseMomentumUncached } from "../lib/analytics/franchise.ts";
 import { getCohortReactionAverageUncached } from "../lib/analytics/reactionFingerprint.ts";
 import {
   getReactionRatiosLive,
@@ -56,6 +57,7 @@ const UNITS: Unit[] = [
   { key: "va_scorecards", compute: () => getVoiceActorScorecardsUncached(), count: (r) => r?.length ?? 0 },
   { key: "staff_scorecards", compute: () => getStaffScorecardsUncached(), count: (r) => r?.length ?? 0 },
   { key: "genre_insights", compute: getGenreInsightsUncached, count: (r) => r?.length ?? 0 },
+  { key: "franchise_momentum", compute: getFranchiseMomentumUncached, count: (r) => r?.length ?? 0 },
   { key: "cohort_reaction", compute: getCohortReactionAverageUncached, count: (r) => r?.basis ?? 0 },
   { key: "reaction_ratios", compute: () => getReactionRatiosLive(1000), count: (r) => r?.length ?? 0 },
   { key: "jikkyo_retention", compute: () => getJikkyoRetentionSeriesLive(8), count: (r) => r?.series?.length ?? 0 },

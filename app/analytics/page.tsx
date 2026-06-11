@@ -16,6 +16,7 @@ import {
 } from "@/lib/analytics";
 import { getStudioScorecards, type StudioScorecard } from "@/lib/analytics/studios";
 import { getGenreInsights, type GenreInsight } from "@/lib/analytics/genres";
+import { getFranchiseMomentum, type FranchiseGroup } from "@/lib/analytics/franchise";
 import {
   getVoiceActorScorecards,
   getStaffScorecards,
@@ -44,7 +45,7 @@ import {
   type CollectionJob,
   type CollectionGap,
 } from "@/lib/analytics/collectionHealth";
-import { seasonSummary, studioInsight, vaInsight, genreOpportunity } from "@/lib/analytics/insights";
+import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight } from "@/lib/analytics/insights";
 import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
@@ -1179,7 +1180,7 @@ async function IndustrySection({ period }: { period?: string }) {
   const curYear = new Date().getFullYear();
   const { filter, label, key } = parsePeriod(period, curYear);
 
-  const [volumeAll, scorecards, vas, popular, topAni, topMal, genreInsights] = await Promise.all([
+  const [volumeAll, scorecards, vas, popular, topAni, topMal, genreInsights, franchises] = await Promise.all([
     getSeasonVolume().catch((): SeasonVolume[] => []),
     getStudioScorecards({ limit: 20 }).catch((): StudioScorecard[] => []),
     getVaRanking(filter, 24).catch((): VaStat[] => []),
@@ -1187,6 +1188,7 @@ async function IndustrySection({ period }: { period?: string }) {
     getTopRated(filter, "anilist", 12).catch((): RatedWork[] => []),
     getTopRated(filter, "mal", 12).catch((): RatedWork[] => []),
     getGenreInsights().catch(() => [] as GenreInsight[]),
+    getFranchiseMomentum().catch(() => [] as FranchiseGroup[]),
   ]);
 
   const maxVa = Math.max(1, ...vas.map((v) => v.work_count));
@@ -1276,6 +1278,17 @@ async function IndustrySection({ period }: { period?: string }) {
         return go ? <AutoInsight lines={[go]} /> : null;
       })()}
       <GenreTrendsCard insights={genreInsights} />
+
+      {/* IP・続編モメンタム */}
+      {franchises.length > 0 && (() => {
+        const fi = franchiseInsight(franchises);
+        return (
+          <>
+            {fi && <AutoInsight lines={[fi]} />}
+            <FranchiseMomentumCard groups={franchises} />
+          </>
+        );
+      })()}
 
       {/* シーズン別本数推移 */}
       <Card title="シーズン別の放送本数" note="クールごとの放送本数（全期間）">
@@ -1530,6 +1543,161 @@ function GenreTrendsCard({ insights }: { insights: GenreInsight[] }) {
       <p className="text-[0.68rem] text-muted mt-3 leading-relaxed">
         ※ スコアはAniList/MAL由来・各サービス利用者を母数とした参考値です。テレビ視聴率ではありません。
       </p>
+    </section>
+  );
+}
+
+/* ================================================================ IP・続編モメンタム */
+
+/** verdict → 矢印記号と色クラス。 */
+const VERDICT_STYLE: Record<string, { arrow: string; cls: string; label: string }> = {
+  growing: { arrow: "▲", cls: "text-emerald-600", label: "拡大" },
+  stable: { arrow: "→", cls: "text-muted", label: "横ばい" },
+  decaying: { arrow: "▼", cls: "text-rose-600", label: "縮小" },
+};
+
+/** 人気推移のインラインSVGスパークライン（series を正規化して描画, ~70×22px）。 */
+function PopularitySparkline({ values }: { values: number[] }) {
+  if (values.length < 2) {
+    return <span className="text-[0.65rem] text-muted tabular-nums">—</span>;
+  }
+  const W = 70;
+  const H = 22;
+  const PAD = 3;
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const range = maxV - minV || 1; // 全て同値のとき divide-by-zero 回避
+  const px = (i: number) => PAD + (i / (values.length - 1)) * (W - PAD * 2);
+  const py = (v: number) => PAD + (1 - (v - minV) / range) * (H - PAD * 2);
+  const points = values.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
+
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" className="overflow-visible">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        className="text-ink-soft"
+      />
+      <circle
+        cx={px(values.length - 1).toFixed(1)}
+        cy={py(values[values.length - 1]).toFixed(1)}
+        r="2"
+        className="fill-current text-ink-soft"
+      />
+    </svg>
+  );
+}
+
+function FranchiseMomentumCard({ groups }: { groups: FranchiseGroup[] }) {
+  return (
+    <section className="card p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+        <h2 className="section-title text-lg">IP・続編モメンタム</h2>
+        <CsvExportButton
+          filename="IP続編モメンタム"
+          headers={["IP", "作品数", "初期人気", "最新人気", "人気推移(倍)", "スコア推移", "判定"]}
+          rows={groups.map((g) => [
+            g.latestTitle,
+            g.entriesCount,
+            g.entries[0]?.popularity ?? 0,
+            g.latestPopularity,
+            g.popularityTrend ?? "",
+            g.scoreTrend ?? "",
+            g.verdict ?? "",
+          ])}
+        />
+      </div>
+      <p className="text-xs text-muted mb-1">
+        続編・シリーズの「シーズン越え」での人気の伸び/縮みを可視化（拡大IP優先・上位24系列）。続編greenlight・フランチャイズ投資の材料。
+      </p>
+      <p className="text-[0.68rem] text-muted mb-4 leading-relaxed">
+        ※ 同名タイトルの語幹マッチによる近似グルーピング（公式のシリーズ情報ではない）。人気はAnnictウォッチャー数。
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[600px] text-sm border-collapse">
+          <thead>
+            <tr className="text-xs text-muted border-b border-line">
+              <th className="text-left font-bold py-2 pr-3">IP（最新作）</th>
+              <th className="text-center font-bold py-2 px-2 w-14">作品数</th>
+              <th className="text-left font-bold py-2 px-2 w-40">人気推移</th>
+              <th className="text-center font-bold py-2 px-2 w-20">スコア推移</th>
+              <th className="text-left font-bold py-2 pl-3 w-20">推移</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => {
+              const vs = g.verdict ? VERDICT_STYLE[g.verdict] : null;
+              const first = g.entries[0];
+              const trendStr =
+                g.popularityTrend != null ? `${g.popularityTrend.toFixed(2)}倍` : "—";
+              const scoreStr =
+                g.scoreTrend == null
+                  ? "—"
+                  : g.scoreTrend > 0
+                    ? `+${g.scoreTrend}`
+                    : `${g.scoreTrend}`;
+              return (
+                <tr key={g.stem} className="border-b border-line/60 hover:bg-paper/60">
+                  <td className="py-2 pr-3">
+                    <Link
+                      href={`/analytics/works/${g.latestWorkId}`}
+                      className="flex items-center gap-2.5 group"
+                    >
+                      <WorkCover
+                        id={g.latestWorkId}
+                        title={g.latestTitle}
+                        url={g.posterUrl}
+                        className="w-8 h-11 rounded shrink-0"
+                      />
+                      <span className="font-medium text-ink group-hover:text-accent line-clamp-2">
+                        {g.latestTitle}
+                      </span>
+                    </Link>
+                  </td>
+                  <td className="py-2 px-2 text-center tabular-nums text-xs text-ink-soft">
+                    {g.entriesCount}
+                  </td>
+                  <td className="py-2 px-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[0.65rem] tabular-nums text-muted shrink-0">
+                        {(first?.popularity ?? 0).toLocaleString()}
+                        <span className="mx-1">→</span>
+                        {g.latestPopularity.toLocaleString()}
+                      </span>
+                      <span className={`shrink-0 ${vs?.cls ?? "text-muted"}`}>
+                        <PopularitySparkline values={g.entries.map((e) => e.popularity)} />
+                      </span>
+                    </div>
+                    <span className={`text-[0.62rem] tabular-nums ${vs?.cls ?? "text-muted"}`}>
+                      {vs?.arrow ?? ""} {trendStr}
+                    </span>
+                  </td>
+                  <td
+                    className={`py-2 px-2 text-center tabular-nums font-bold ${
+                      g.scoreTrend == null
+                        ? "text-muted"
+                        : g.scoreTrend > 0
+                          ? "text-emerald-600"
+                          : g.scoreTrend < 0
+                            ? "text-rose-600"
+                            : "text-muted"
+                    }`}
+                  >
+                    {scoreStr}
+                  </td>
+                  <td className={`py-2 pl-3 text-xs font-bold ${vs?.cls ?? "text-muted"}`}>
+                    {vs ? `${vs.arrow} ${vs.label}` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
