@@ -102,6 +102,9 @@ export interface Subscription {
   autoSync: boolean;
   status: "active" | "paused" | "cancelled";
   createdAt: string;
+  /** この購読に固有の放送局選択（カレンダーがグローバル選択より優先する）。
+   *  DB列 subscriptions.channels (migration 0010) は後から追加されるため、未マイグレーション時は undefined/null。 */
+  channels?: string[] | null;
 }
 
 // --- 一覧クエリ ---

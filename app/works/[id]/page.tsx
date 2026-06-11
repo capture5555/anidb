@@ -131,7 +131,11 @@ export default async function WorkDetailPage({
           )}
 
           <div className="mt-auto pt-6 flex flex-wrap items-center gap-4">
-            <SubscribeButton workId={work.id} workTitle={work.title} />
+            <SubscribeButton
+              workId={work.id}
+              workTitle={work.title}
+              channels={work.programs.map((p) => p.channelName)}
+            />
             {work.officialSiteUrl && (
               <a
                 href={work.officialSiteUrl}

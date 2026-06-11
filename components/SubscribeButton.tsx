@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import type { SubscriptionMode } from "@/lib/types";
+import { isStreamingChannel } from "@/lib/regions";
 import {
   REGION_KEYS,
   REGION_LABELS,
@@ -12,6 +13,13 @@ import {
   parseRegion,
   type Region,
 } from "@/lib/regions";
+import {
+  RECOMMENDED_CHANNELS,
+  CHANNELS_COOKIE,
+  channelMatches,
+  channelRankBy,
+  parseChannelsCookie,
+} from "@/lib/channels";
 
 type Phase = "idle" | "choosing" | "need-auth" | "submitting" | "done" | "error";
 
@@ -26,6 +34,31 @@ function writeRegionCookie(region: Region) {
   document.cookie = `${REGION_COOKIE}=${region}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
 }
 
+/** この作品の放送局名（配信除く・重複除去・おすすめ順）を算出する。 */
+function broadcastChannelsInit(raw: (string | null | undefined)[] | undefined): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const r of raw ?? []) {
+    const name = (r ?? "").trim();
+    if (!name || isStreamingChannel(name) || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  names.sort((a, b) => {
+    const ra = channelRankBy(a, RECOMMENDED_CHANNELS);
+    const rb = channelRankBy(b, RECOMMENDED_CHANNELS);
+    return ra !== rb ? ra - rb : a.localeCompare(b);
+  });
+  return names;
+}
+
+/** グローバル放送局選択（pref_channels Cookie）を読む。未ログイン画面でも効く。 */
+function readGlobalChannels(): string[] {
+  if (typeof document === "undefined") return [];
+  const m = document.cookie.match(new RegExp(`(?:^|; )${CHANNELS_COOKIE}=([^;]+)`));
+  return parseChannelsCookie(m ? decodeURIComponent(m[1]) : null);
+}
+
 /**
  * 作品を「選択リスト」へ登録するボタン。
  * 旧 AddToCalendar と違い、Googleカレンダーへ直接書き込まず、
@@ -35,10 +68,13 @@ export function SubscribeButton({
   workId,
   workTitle,
   compact = false,
+  channels: workChannels,
 }: {
   workId: string;
   workTitle: string;
   compact?: boolean;
+  /** この作品の今後の放送局名（重複可・配信含む可）。番組表/詳細ページから渡す。 */
+  channels?: (string | null | undefined)[];
 }) {
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -52,6 +88,27 @@ export function SubscribeButton({
   const [includeSubtitle, setIncludeSubtitle] = useState(true);
   const [includeChannel, setIncludeChannel] = useState(true);
   const [includeUrl, setIncludeUrl] = useState(true);
+
+  // この作品の放送局（配信除く・重複除去・おすすめ順）。
+  const broadcastChannels = useMemo(() => broadcastChannelsInit(workChannels), [workChannels]);
+
+  // 1局以下なら選びようがないので picker は出さない。
+  const showChannelPicker = broadcastChannels.length > 1;
+
+  // グローバル選択に一致する局を初期チェック。一致が無ければ全選択（カレンダーが空にならない保険）。
+  const [selectedChannels, setSelectedChannels] = useState<string[]>(() => {
+    const all = broadcastChannelsInit(workChannels);
+    if (all.length === 0) return [];
+    const global = readGlobalChannels();
+    const matched = all.filter((c) => channelMatches(c, global));
+    return matched.length > 0 ? matched : all;
+  });
+
+  const toggleChannel = useCallback((name: string) => {
+    setSelectedChannels((prev) =>
+      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name],
+    );
+  }, []);
 
   const startAuth = useCallback(() => {
     const returnTo = typeof window !== "undefined" ? window.location.pathname : `/works/${workId}`;
@@ -71,7 +128,16 @@ export function SubscribeButton({
       const res = await fetch("/api/subscriptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workId, mode, region, includeSubtitle, includeChannel, includeUrl }),
+        body: JSON.stringify({
+          workId,
+          mode,
+          region,
+          includeSubtitle,
+          includeChannel,
+          includeUrl,
+          // picker を出した作品のみ、この購読固有の放送局選択を送る。
+          ...(showChannelPicker ? { channels: selectedChannels } : {}),
+        }),
       });
       if (res.status === 401) {
         setPhase("need-auth");
@@ -90,7 +156,7 @@ export function SubscribeButton({
       setError(e instanceof Error ? e.message : "不明なエラー");
       setPhase("error");
     }
-  }, [workId, mode, region, includeSubtitle, includeChannel, includeUrl]);
+  }, [workId, mode, region, includeSubtitle, includeChannel, includeUrl, showChannelPicker, selectedChannels]);
 
   const close = () => {
     setOpen(false);
@@ -170,6 +236,34 @@ export function SubscribeButton({
                       同じ回が複数局で放送される作品は、選んだ地域の局を予定に入れます。
                     </p>
                   </Field>
+
+                  {showChannelPicker && (
+                    <Field label="この作品の放送局（カレンダーに入れる局）">
+                      <div className="flex flex-wrap gap-1.5">
+                        {broadcastChannels.map((name) => {
+                          const active = selectedChannels.includes(name);
+                          return (
+                            <button
+                              key={name}
+                              type="button"
+                              onClick={() => toggleChannel(name)}
+                              aria-pressed={active}
+                              className={`px-2.5 py-1 rounded-full border text-xs font-medium transition ${
+                                active
+                                  ? "border-accent bg-accent/10 text-ink"
+                                  : "border-line text-muted hover:border-line-strong"
+                              }`}
+                            >
+                              {name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[0.68rem] text-muted mt-1.5 leading-relaxed">
+                        チェックした局の放送だけをカレンダーに入れます（後でマイページから変更できます）。
+                      </p>
+                    </Field>
+                  )}
 
                   <Field label="予定の単位">
                     <div className="flex gap-2">

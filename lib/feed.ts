@@ -63,10 +63,17 @@ function appUrl(): string {
 }
 
 /** 1作品ぶんの放送回を窓でフィルタし、ICSイベントへ変換する */
-function workToEvents(work: WorkDetail, opts: FeedOptions, channels: string[] = []): IcsEvent[] {
+function workToEvents(
+  work: WorkDetail,
+  opts: FeedOptions,
+  channels: string[] = [],
+  subChannels?: string[] | null,
+): IcsEvent[] {
   const now = Date.now();
   const from = now - PAST_DAYS * 86400000;
   const to = now + FUTURE_DAYS * 86400000;
+  // この購読固有の放送局選択（subChannels）が空でなければそれを優先。無ければグローバル選択。
+  const effective = subChannels && subChannels.length > 0 ? subChannels : channels;
   // 窓内・本放送・配信(AT-X含む)以外の放送波。
   const base = work.programs.filter((p: Program) => {
     const t = new Date(p.startAt).getTime();
@@ -75,10 +82,10 @@ function workToEvents(work: WorkDetail, opts: FeedOptions, channels: string[] = 
   // 選択した放送局で視聴できる放送があるなら、それだけに絞る。
   // ＝選択外の局(他地域ローカル等)やBSの重複を出さない。選択局で見られる放送が1つも無い作品だけ、
   //   カレンダーから消さないよう全放送を残す（BSのみ等の作品の保険）。
-  const regional = base.filter((p) => channelMatches(p.channelName, channels));
+  const regional = base.filter((p) => channelMatches(p.channelName, effective));
   const inWindow = regional.length > 0 ? regional : base;
   // 同じ回の系列ネットは1話1件（選択局の代表）に集約
-  return pickOnePerEpisode(inWindow, channels).map((program) => {
+  return pickOnePerEpisode(inWindow, effective).map((program) => {
     // episode_id で紐付け。未リンク（話数レコード未作成等）の場合は話数(count)で代替マッチし、
     // サブタイトルが取れるようにする（位置ベース紐付けの取りこぼし対策）。
     const episode =
@@ -105,14 +112,32 @@ export async function buildUserFeed(userId: string): Promise<string> {
   const userChannels = await getUserChannels(userId);
   const channels =
     userChannels.length > 0 ? userChannels : seedChannelsFromRegion(await getUserRegion(userId));
-  const { data: subs } = await db
+  // channels 列を含めて取得。列が無い（migration 0010 未適用）場合は列なしの select へフォールバック。
+  const withChannels = await db
     .from("subscriptions")
-    .select("work_id, mode, include_subtitle, include_channel, include_url")
+    .select("work_id, mode, include_subtitle, include_channel, include_url, channels")
     .eq("user_id", userId)
     .eq("status", "active");
+  let subs: Record<string, unknown>[] | null = withChannels.data;
+  if (withChannels.error) {
+    const withoutChannels = await db
+      .from("subscriptions")
+      .select("work_id, mode, include_subtitle, include_channel, include_url")
+      .eq("user_id", userId)
+      .eq("status", "active");
+    subs = withoutChannels.data;
+  }
 
   const events: IcsEvent[] = [];
-  for (const row of subs ?? []) {
+  for (const raw of subs ?? []) {
+    const row = raw as {
+      work_id: string;
+      mode: FeedOptions["mode"];
+      include_subtitle: boolean;
+      include_channel: boolean;
+      include_url: boolean;
+      channels?: string[] | null;
+    };
     const work = await provider.getWork(row.work_id);
     if (!work) continue;
     events.push(
@@ -125,6 +150,8 @@ export async function buildUserFeed(userId: string): Promise<string> {
           includeUrl: row.include_url,
         },
         channels,
+        // pre-migration 等で channels 列が無い行では undefined。
+        row.channels,
       ),
     );
   }
