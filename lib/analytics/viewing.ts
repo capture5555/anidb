@@ -250,7 +250,7 @@ export interface ProgramHeat {
 }
 
 /** 盛り上がった放送回ランキング（コメント数順、直近days日以内）。チャート描画用の分単位データ込み */
-export async function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[]> {
+export async function getHotProgramsLive(limit = 6, days = 14): Promise<ProgramHeat[]> {
   const db = getAdminClient();
   const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
 
@@ -278,11 +278,13 @@ export async function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[
   }
 
   const targets = logs.filter((l) => progById.has(l.program_id)).slice(0, limit);
+  // 分単位データの読み込みは番組ごとに独立なので並列化（従来は逐次awaitで遅かった）。
+  const heats = await Promise.all(targets.map((t) => loadProgramHeat(db, t.program_id)));
   const out: ProgramHeat[] = [];
-  for (const t of targets) {
+  targets.forEach((t, i) => {
+    const heat = heats[i];
+    if (!heat) return;
     const p = progById.get(t.program_id)!;
-    const heat = await loadProgramHeat(db, t.program_id);
-    if (!heat) continue;
     const ep = p.episodes;
     const epLabel =
       ep?.number_text ?? (ep?.number != null ? `第${ep.number}話` : p.count != null ? `第${p.count}話` : null);
@@ -298,8 +300,24 @@ export async function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[
       points: heat.points,
       peaks: heat.peaks,
     });
-  }
+  });
   return out;
+}
+
+/** limit/days 単位で30分メモ化した LIVE 計算。 */
+const getHotProgramsMemo = memoizeTTL(
+  getHotProgramsLive,
+  (limit = 6, days = 14) => `hot:${limit}:${days}`,
+  30 * 60 * 1000,
+);
+
+/**
+ * 「いま熱い放送回」。ページが使うデフォルト引数(limit=6, days=14)のときだけ
+ * 事前計算スナップショット("hot_programs")を読み、無ければ LIVE フォールバック。
+ */
+export function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[]> {
+  if (limit !== 6 || days !== 14) return getHotProgramsMemo(limit, days);
+  return fromSnapshotOrLive("hot_programs", () => getHotProgramsMemo(limit, days));
 }
 
 /** 1番組の分単位データ（heat + reactions + peaks）を読み込む */
