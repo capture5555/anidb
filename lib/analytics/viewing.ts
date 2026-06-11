@@ -8,6 +8,7 @@ import { getAdminClient } from "../supabase/admin.ts";
 import type { ReactionCategory } from "./commentAnalysis.ts";
 import { memoizeTTL } from "../cache.ts";
 import { fromSnapshotOrLive } from "./snapshots.ts";
+import { getCollectedLogs } from "./collectedLogs.ts";
 
 type Db = ReturnType<typeof getAdminClient>;
 
@@ -148,19 +149,8 @@ export function getRetentionSeries(limit = 8): Promise<RetentionResult> {
 export async function getJikkyoRetentionSeriesLive(limit = 8): Promise<RetentionResult> {
   const db = getAdminClient();
 
-  // ページネーションで全件取得（limit 打ち切りによるサイレント欠損を防ぐ）
-  const allLogs: { program_id: string; comment_count: number }[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await db
-      .from("analytics_collection_log")
-      .select("program_id, comment_count")
-      .eq("status", "collected")
-      .gt("comment_count", 0)
-      .range(from, from + 999);
-    if (error) break;
-    allLogs.push(...(data ?? []));
-    if (!data || data.length < 1000) break;
-  }
+  // 収集済みログを共有メモ化ヘルパーから取得（同一リクエスト内で他の live 関数と共有）
+  const allLogs = await getCollectedLogs();
   if (allLogs.length === 0) return { snapshotDate: null, series: [] };
   const countByProgram = new Map(allLogs.map((l) => [l.program_id, l.comment_count]));
 
@@ -373,21 +363,10 @@ export interface ReactionRatioWork {
 export async function getReactionRatiosLive(minComments = 1000): Promise<ReactionRatioWork[]> {
   const db = getAdminClient();
 
-  // 収集済み番組の総コメント数（ページネーションで全件取得）
-  const allLogs2: { program_id: string; comment_count: number }[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await db
-      .from("analytics_collection_log")
-      .select("program_id, comment_count")
-      .eq("status", "collected")
-      .gt("comment_count", 0)
-      .range(from, from + 999);
-    if (error) break;
-    allLogs2.push(...(data ?? []));
-    if (!data || data.length < 1000) break;
-  }
-  if (allLogs2.length === 0) return [];
-  const countByProgram = new Map(allLogs2.map((l) => [l.program_id, l.comment_count]));
+  // 収集済み番組の総コメント数（共有メモ化ヘルパーから取得）
+  const allLogs = await getCollectedLogs();
+  if (allLogs.length === 0) return [];
+  const countByProgram = new Map(allLogs.map((l) => [l.program_id, l.comment_count]));
 
   // 番組→作品
   const workByProgram = new Map<string, string>();
@@ -483,21 +462,23 @@ export interface PeakMoment {
 export async function getPeakMomentsLive(limit = 10): Promise<PeakMoment[]> {
   const db = getAdminClient();
 
-  // 番組ごとの最大分を集計（全行ページング）
+  // idx_amh_count (comment_count DESC) を利用してテーブル先頭の高コメント行だけを読む。
+  // 上位10作品のピーク瞬間は必ず全番組×全分の中でコメント数上位に属するため、
+  // 上位2000行（上位limitの数十倍）を降順で取れば per-program 最大値が確実に含まれる。
+  // これにより全行ページングが不要になり、テーブルが成長しても定常O(2000)で済む。
+  const { data: topRows, error } = await db
+    .from("analytics_minute_heat")
+    .select("program_id, minute_offset, comment_count")
+    .order("comment_count", { ascending: false })
+    .limit(2000);
+  if (error) throw error;
+
+  // 取得済みの行から番組ごとの最大分を抽出（降順のため最初に出た行が最大値）
   const maxByProgram = new Map<string, { minute: number; count: number }>();
-  for (let offset = 0; ; offset += 1000) {
-    const { data, error } = await db
-      .from("analytics_minute_heat")
-      .select("program_id, minute_offset, comment_count")
-      .range(offset, offset + 999);
-    if (error) throw error;
-    for (const r of data ?? []) {
-      const cur = maxByProgram.get(r.program_id);
-      if (!cur || r.comment_count > cur.count) {
-        maxByProgram.set(r.program_id, { minute: r.minute_offset, count: r.comment_count });
-      }
+  for (const r of topRows ?? []) {
+    if (!maxByProgram.has(r.program_id)) {
+      maxByProgram.set(r.program_id, { minute: r.minute_offset, count: r.comment_count });
     }
-    if (!data || data.length < 1000) break;
   }
   if (maxByProgram.size === 0) return [];
 

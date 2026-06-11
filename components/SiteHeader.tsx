@@ -4,6 +4,7 @@ const NAV = [
   { href: "/", label: "作品一覧" },
   { href: "/schedule", label: "番組表" },
   { href: "/analytics", label: "分析" },
+  { href: `/analytics/studios/${encodeURIComponent("TriF")}`, label: "TriF分析" },
   { href: "/me", label: "マイ登録" },
 ];
 
