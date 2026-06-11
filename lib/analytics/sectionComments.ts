@@ -8,7 +8,7 @@
 import type { WorkAnalysis, RetentionSeries, PeakMoment, ReactionRatioWork } from "./viewing.ts";
 import type { WorkReactionBreakdown } from "./workReactions.ts";
 import type { ReactionCategory } from "./commentAnalysis.ts";
-import type { CohortXBuzz, XBuzzVsJikkyo, EpisodeBuzzLeader, XTopicLeader } from "./xbuzz.ts";
+import type { CohortXBuzz, XBuzzVsJikkyo, EpisodeBuzzLeader, XTopicLeader, AwarenessHeatRow } from "./xbuzz.ts";
 import type { OverallRankingRow } from "./overallRanking.ts";
 import type { VaScorecard, StaffScorecard } from "./people.ts";
 import type { StudioScorecard } from "./studios.ts";
@@ -413,4 +413,50 @@ export function genreTrendsComment(insights: GenreInsight[]): string | null {
   const topCount = insights.reduce((a, b) => (b.worksCount > a.worksCount ? b : a));
   parts.push(`最多作品ジャンルは「${topCount.genre}」（${topCount.worksCount}本）`);
   return parts.join("・") + "。";
+}
+
+/**
+ * 認知×熱量 象限マップのひとことメモ（分析ハブ・Xバズタブ用）。
+ * ファン型ダークホースと総合ヒットの代表作を指摘する。
+ * データが薄い（4作品未満）場合は null。
+ */
+export function awarenessHeatComment(rows: AwarenessHeatRow[]): string | null {
+  if (rows.length < 4) return null;
+
+  const darkhorses = rows.filter((r) => r.quadrant === "fan_darkhorse");
+  const hits = rows.filter((r) => r.quadrant === "total_hit");
+  const prLeads = rows.filter((r) => r.quadrant === "general_pr");
+
+  const parts: string[] = [];
+
+  // ダークホース: 熱量が最も高い作品を代表として指摘。
+  if (darkhorses.length > 0) {
+    const rep = darkhorses.reduce((a, b) => (b.volume > a.volume ? b : a));
+    parts.push(
+      `ファン型ダークホースは「${rep.title}」。認知は低いが熱量（${Math.round(rep.volume * 10) / 10}/5）が突出`,
+    );
+  }
+
+  // 総合ヒット: popularity が最も高い作品を代表。
+  if (hits.length > 0) {
+    const rep = hits.reduce((a, b) => (b.popularity > a.popularity ? b : a));
+    parts.push(`総合ヒットは「${rep.title}」（認知・熱量ともに高）`);
+  }
+
+  // PR先行: hits/darkhorses が無いときだけ補足。
+  if (parts.length === 0 && prLeads.length > 0) {
+    const rep = prLeads.reduce((a, b) => (b.popularity > a.popularity ? b : a));
+    parts.push(`「${rep.title}」は高認知だが熱量がまだ控えめ（PR先行）`);
+  }
+
+  if (parts.length === 0) return null;
+
+  const total = rows.length;
+  const dhCount = darkhorses.length;
+  const suffix =
+    dhCount > 0
+      ? `。ダークホース候補${dhCount}作品（全${total}作品中）`
+      : `（全${total}作品）`;
+
+  return parts.join("。") + suffix + "。";
 }

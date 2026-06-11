@@ -394,6 +394,129 @@ export function getCohortXBuzzForSnapshot(limit = 20): Promise<CohortXBuzz[]> {
   return getCohortXBuzzUncached(limit);
 }
 
+/* ---------------------------------------------------------------- 認知 × 熱量 象限マップ */
+
+/** 認知×熱量 象限マップの1行。popularity=Annictウォッチャー数、volume=Xバズ0〜5。 */
+export interface AwarenessHeatRow {
+  workId: string;
+  title: string;
+  posterUrl: string | null;
+  /** Annictウォッチャー数（認知の代理指標）。 */
+  popularity: number;
+  /** Xバズ volume（熱量、0〜5）。 */
+  volume: number;
+  /** 4象限ラベル。 */
+  quadrant: "total_hit" | "fan_darkhorse" | "general_pr" | "watching";
+}
+
+/** popularity の中央値を求める純関数。空配列は 0 を返す。 */
+export function medianPopularity(rows: { popularity: number }[]): number {
+  if (rows.length === 0) return 0;
+  const sorted = [...rows].map((r) => r.popularity).sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/** popularity中央値とvolume=3 を境に4象限へ分類する純関数。 */
+export function classifyAwarenessHeat(
+  popularity: number,
+  volume: number,
+  popMedian: number,
+): AwarenessHeatRow["quadrant"] {
+  const highAwareness = popularity >= popMedian;
+  const highHeat = volume >= 3;
+  if (highAwareness && highHeat) return "total_hit";
+  if (!highAwareness && highHeat) return "fan_darkhorse";
+  if (highAwareness && !highHeat) return "general_pr";
+  return "watching";
+}
+
+/**
+ * 今期放送中作品ごとに { workId, title, posterUrl, popularity, volume, quadrant } を返す。
+ * Xバズ volume が無い（0件）作品は除外。失敗・欠落はすべて [] に正規化（防御的）。
+ */
+export async function getAwarenessHeatScatter(limit = 40): Promise<AwarenessHeatRow[]> {
+  try {
+    const db = getAdminClient();
+    const { year, season } = seasonOf(new Date());
+
+    // popularity 列も含めて今期作品を取得。
+    const { data: worksData, error: worksErr } = await db
+      .from("works")
+      .select("id, title, poster_url, popularity")
+      .eq("season_year", year)
+      .eq("season_name", season)
+      .eq("status", "airing")
+      .eq("media", "tv")
+      .order("popularity", { ascending: false })
+      .limit(200);
+    if (worksErr || !worksData || worksData.length === 0) return [];
+
+    type WorkRow = { id: string; title: string; poster_url: string | null; popularity: number | null };
+    const works = worksData as WorkRow[];
+    const byId = new Map(works.map((w) => [w.id, w]));
+    const workIds = works.map((w) => w.id);
+
+    // 作品ごとの最新 X volume（作品レベル行）を取得。
+    const xVol = new Map<string, number>();
+    for (const ids of chunk(workIds, 100)) {
+      let rows: { work_id: string; volume_score: number }[] = [];
+      const res = await db
+        .from("analytics_x_buzz")
+        .select("work_id, captured_at, volume_score")
+        .in("work_id", ids)
+        .is("episode_id", null)
+        .order("captured_at", { ascending: false })
+        .limit(2000);
+      if (res.error) {
+        // episode_id カラム未作成フォールバック。
+        const basic = await db
+          .from("analytics_x_buzz")
+          .select("work_id, captured_at, volume_score")
+          .in("work_id", ids)
+          .order("captured_at", { ascending: false })
+          .limit(2000);
+        if (basic.error) continue;
+        rows = (basic.data ?? []) as { work_id: string; volume_score: number }[];
+      } else {
+        rows = (res.data ?? []) as { work_id: string; volume_score: number }[];
+      }
+      for (const r of rows) {
+        if (!xVol.has(r.work_id)) xVol.set(r.work_id, Number(r.volume_score) || 0);
+      }
+    }
+
+    // Xバズのある作品だけに絞り、中間データを構築。
+    const candidates: { workId: string; title: string; posterUrl: string | null; popularity: number; volume: number }[] = [];
+    for (const [wid, vol] of xVol) {
+      const w = byId.get(wid);
+      if (!w) continue;
+      candidates.push({
+        workId: wid,
+        title: w.title,
+        posterUrl: w.poster_url ?? null,
+        popularity: Math.max(0, Number(w.popularity) || 0),
+        volume: vol,
+      });
+    }
+    if (candidates.length === 0) return [];
+
+    // popularity の中央値を計算して象限分類。
+    const popMedian = medianPopularity(candidates);
+
+    const rows: AwarenessHeatRow[] = candidates.map((c) => ({
+      ...c,
+      quadrant: classifyAwarenessHeat(c.popularity, c.volume, popMedian),
+    }));
+
+    // popularity 降順でソートして上限適用。
+    rows.sort((a, b) => b.popularity - a.popularity);
+    return rows.slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
 /* ---------------------------------------------------------------- episode buzz leaders */
 
 /** 話数別バズ上位の1行（クール横断で「いま盛り上がっている話数」）。 */
