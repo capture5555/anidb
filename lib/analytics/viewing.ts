@@ -374,7 +374,15 @@ async function loadProgramHeat(
     peaks: (peaks ?? []).map((p) => ({ minute: p.minute_offset, comments: p.comments ?? [] })),
     representativeComments: topPeakRows.map((p) => ({
       minuteOffset: p.minute_offset,
-      comments: (p.comments as unknown as string[]).slice(0, 5),
+      // DB は {text,count}[] だが、過去データや文字列で入っている可能性に備えて正規化する。
+      comments: (Array.isArray(p.comments) ? p.comments : [])
+        .slice(0, 5)
+        .map((c: unknown) => {
+          if (typeof c === "string") return { text: c, count: 0 };
+          const o = (c ?? {}) as { text?: unknown; count?: unknown };
+          return { text: String(o.text ?? ""), count: Number(o.count) || 0 };
+        })
+        .filter((c) => c.text.length > 0),
     })),
   };
 }
@@ -586,7 +594,8 @@ export function getPeakMoments(limit = 10): Promise<PeakMoment[]> {
 
 export interface RepresentativeComment {
   minuteOffset: number;
-  comments: string[];
+  /** analytics_peak_comments.comments は {text,count}[] で保存されている（PeakComments.top と同形）。 */
+  comments: { text: string; count: number }[];
 }
 
 export interface EpisodeHeat {

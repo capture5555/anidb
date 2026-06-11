@@ -9,7 +9,7 @@ import { MinuteHeatChart, type MinutePointInput, type PeakInput } from "./Minute
 
 export interface RepresentativeCommentInput {
   minuteOffset: number;
-  comments: string[];
+  comments: { text: string; count: number }[];
 }
 
 export interface EpisodeHeatInput {
@@ -146,12 +146,13 @@ export function EpisodeHeatSelector({ episodes }: { episodes: EpisodeHeatInput[]
               <div key={block.minuteOffset} className="rounded-lg border border-line bg-surface p-3">
                 <p className="text-xs font-bold text-accent mb-2">▲ {block.minuteOffset}分ごろ</p>
                 <ul className="space-y-1.5">
-                  {block.comments.map((text, j) => (
+                  {block.comments.map((c, j) => (
                     <li
                       key={j}
                       className="text-xs text-ink-soft whitespace-pre-wrap break-words leading-relaxed"
                     >
-                      「{text}」
+                      「{c.text}」
+                      {c.count > 1 && <span className="text-muted tabular-nums"> ×{c.count}</span>}
                     </li>
                   ))}
                 </ul>
