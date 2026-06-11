@@ -14,6 +14,7 @@ import type { VaScorecard, StaffScorecard } from "./people.ts";
 import type { StudioScorecard } from "./studios.ts";
 import type { GenreInsight } from "./genres.ts";
 import type { RatedWork } from "../analytics.ts";
+import type { GlobalGapRow } from "./globalGap.ts";
 
 const REACTION_LABEL: Record<ReactionCategory, string> = {
   laugh: "笑い",
@@ -459,4 +460,50 @@ export function awarenessHeatComment(rows: AwarenessHeatRow[]): string | null {
       : `（全${total}作品）`;
 
   return parts.join("。") + suffix + "。";
+}
+
+/**
+ * 国内×海外 人気乖離セクションのひとことメモ。
+ * 海外先行・国内先行の代表作と、ライセンス強化の余地を述べる。
+ * データが薄い（4作品未満）場合は null。
+ */
+export function globalGapComment(rows: GlobalGapRow[]): string | null {
+  if (rows.length < 4) return null;
+
+  const overseasLeads = rows.filter((r) => r.kind === "overseas_lead");
+  const domesticLeads = rows.filter((r) => r.kind === "domestic_lead");
+  const parts: string[] = [];
+
+  if (overseasLeads.length > 0) {
+    // 最も海外先行（gap 最大）の作品を代表として指摘
+    const rep = overseasLeads.reduce((a, b) => (b.gap > a.gap ? b : a));
+    parts.push(
+      `海外先行は「${rep.title}」（海外${rep.overseas} vs 国内${rep.domestic}、乖離+${rep.gap}pt）。` +
+      `国内人気の割に海外指標が突出＝海外配信・ライセンス強化の余地`,
+    );
+  }
+
+  if (domesticLeads.length > 0) {
+    // 最も国内先行（gap 最小）の作品を代表として指摘
+    const rep = domesticLeads.reduce((a, b) => (b.gap < a.gap ? b : a));
+    const absGap = Math.abs(rep.gap);
+    parts.push(
+      `国内先行は「${rep.title}」（国内${rep.domestic} vs 海外${rep.overseas}、乖離−${absGap}pt）。` +
+      `国内人気に比べ海外認知はまだ少ない＝海外PR・字幕配信の先行投資機会`,
+    );
+  }
+
+  if (parts.length === 0) {
+    // 全作品が balanced なケース
+    const balanced = rows.filter((r) => r.kind === "balanced").length;
+    return `今期は国内・海外の人気差が小さい作品が多い（均衡${balanced}作品）。` +
+      `乖離が大きい作品が出た際にライセンス判断の優先候補となる。`;
+  }
+
+  const total = rows.length;
+  const oCount = overseasLeads.length;
+  const dCount = domesticLeads.length;
+  const countNote = `今期対象${total}作品中、海外先行${oCount}・国内先行${dCount}作品。`;
+
+  return parts.join("。") + "。" + countNote;
 }
