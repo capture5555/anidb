@@ -73,6 +73,7 @@ import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
 import { SectionNote } from "@/components/charts/WorkAnalysisSections";
+import { SeasonOverviewHeatmap } from "@/components/charts/SeasonOverviewHeatmap";
 import {
   hotProgramsComment,
   retentionSeriesComment,
@@ -92,6 +93,7 @@ import {
   awarenessHeatComment,
   globalGapComment,
   fastStartComment,
+  seasonHeatmapComment,
 } from "@/lib/analytics/sectionComments";
 import {
   getOverallRanking,
@@ -357,9 +359,13 @@ function OverallRankingCard({ rows }: { rows: OverallRankingRow[] }) {
 /* ================================================================ 視聴分析 */
 
 async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
-  const [retention, hot, peaks, ratios, timeslots, overallRanking, fastStart] = await Promise.all([
+  const [retention, jikkyoRetention, hot, peaks, ratios, timeslots, overallRanking, fastStart] = await Promise.all([
     basis === "annict"
       ? getRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] }))
+      : getJikkyoRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] })),
+    // シーズン俯瞰ヒートマップは常に実況コメント基準で表示するため、別途取得（basis=jikkyo のときは上と共有されキャッシュヒット）
+    basis === "jikkyo"
+      ? Promise.resolve(null) // jikkyo のときは retention を流用
       : getJikkyoRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] })),
     getHotPrograms(6, 14).catch(() => []),
     getPeakMoments(10).catch(() => []),
@@ -368,6 +374,8 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
     getOverallRanking().catch((): OverallRankingRow[] => []),
     getFastStart(30).catch((): FastStartRow[] => []),
   ]);
+  // シーズン俯瞰ヒートマップ用: 常に実況コメントデータを使う
+  const heatmapSeries = (jikkyoRetention ?? retention).series;
 
   return (
     <div className="space-y-5">
@@ -443,6 +451,18 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
               />
             ))}
           </div>
+        </section>
+      )}
+
+      {/* シーズン俯瞰ヒートマップ */}
+      {heatmapSeries.length >= 2 && (
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">シーズン俯瞰ヒートマップ</h2>
+          <p className="text-xs text-muted mb-4">
+            今期作品×話数の実況コメント数を俯瞰。濃いほど盛り上がった回。色は log スケールで全体最大を基準に正規化（人気順上位30作品を表示）。
+          </p>
+          <SectionNote text={seasonHeatmapComment(heatmapSeries)} />
+          <SeasonOverviewHeatmap rows={heatmapSeries} />
         </section>
       )}
 

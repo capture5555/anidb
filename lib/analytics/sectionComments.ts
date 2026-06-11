@@ -529,3 +529,59 @@ export function globalGapComment(rows: GlobalGapRow[]): string | null {
 
   return parts.join("。") + "。" + countNote;
 }
+
+/**
+ * シーズン俯瞰ヒートマップのひとことメモ（視聴分析タブ用）。
+ * 全話で最も盛り上がった作品×話数と、全話を通じてコメント数が安定している作品を指摘する。
+ * データが薄い（2作品未満・有効ポイント0）場合は null。
+ */
+export function seasonHeatmapComment(series: RetentionSeries[]): string | null {
+  const valid = series.filter((s) => s.points.length >= 1);
+  if (valid.length < 2) return null;
+
+  // 全セルを平坦化して最大コメント数の話（作品・話数ラベル・コメント数）を探す
+  let peakWork: string | null = null;
+  let peakLabel: string | null = null;
+  let peakRecords = 0;
+
+  for (const s of valid) {
+    for (const p of s.points) {
+      if (p.records > peakRecords) {
+        peakRecords = p.records;
+        peakWork = s.title;
+        peakLabel = p.numberText ?? `第${p.episodeNumber}話`;
+      }
+    }
+  }
+
+  // 「全話通じて安定して濃い」＝各話コメント数の変動係数(CV)が最も小さい作品
+  // CV = 標準偏差 / 平均。2話以上ある作品のみ対象。
+  let stableWork: string | null = null;
+  let stableCV = Infinity;
+
+  for (const s of valid) {
+    if (s.points.length < 3) continue;
+    const vals = s.points.map((p) => p.records).filter((v) => v > 0);
+    if (vals.length < 3) continue;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    if (mean <= 0) continue;
+    const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+    const cv = Math.sqrt(variance) / mean;
+    if (cv < stableCV) {
+      stableCV = cv;
+      stableWork = s.title;
+    }
+  }
+
+  if (peakWork === null) return null;
+
+  const parts: string[] = [];
+  parts.push(
+    `最も盛り上がった回は「${peakWork}」${peakLabel}（${peakRecords.toLocaleString()}コメント）`,
+  );
+  if (stableWork && stableWork !== peakWork) {
+    parts.push(`全話通して安定して濃いのは「${stableWork}」`);
+  }
+
+  return parts.join("。") + "。";
+}
