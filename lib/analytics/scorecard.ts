@@ -129,30 +129,43 @@ export function cohortCommentary(w: {
   overhyped: boolean;
   quadrant: Quadrant;
   darkhorse: number;
+  satisfactionPct?: number | null;
+  buzzRatingGap?: number | null;
 }): string {
   const aw = w.awarenessPct;
   const sc = w.scorePct;
   const pa = w.passionPct;
+  const sat = w.satisfactionPct ?? null;
+  const gap = w.buzzRatingGap ?? null;
+  const quadLabel = QUADRANT_LABELS[w.quadrant];
+
   if (w.sleeper && aw != null && sc != null) {
-    return `評価は上位${sc}%だが認知は上位${aw}%にとどまる。"過小評価（スリーパー）"の可能性。発掘・先行投資の候補。`;
+    const satNote = sat != null ? `満足度も上位${sat}%。` : "";
+    const gapNote = gap != null && gap < -5 ? `評価−認知ギャップ ${Math.abs(gap).toFixed(0)}pt。` : "";
+    return `認知 上位${aw}% / 評価 上位${sc}%（${quadLabel}）。${satNote}${gapNote}高評価だが認知が追いついていない＝露出を増やせば伸びしろ大。発掘・先行投資の候補。`;
   }
   if (w.overhyped && aw != null && sc != null) {
-    return `認知は上位${aw}%だが評価は上位${sc}%。"話題先行"型で、初速以降の伸びは慎重に見る。`;
+    const gapNote = gap != null && gap > 5 ? `話題−評価ギャップ ${gap.toFixed(0)}pt。` : "";
+    return `認知 上位${aw}% / 評価 上位${sc}%（${quadLabel}）。${gapNote}話題先行型＝初速以降の伸びは慎重に見る。短期施策向き。`;
   }
   if (w.quadrant === "royal" && aw != null && pa != null) {
-    return `認知・熱量ともに上位${Math.min(aw, pa)}%圏内の"王道ヒット型"。マス施策・大量展開が効く。`;
+    const satNote = sat != null ? `満足度も上位${sat}%で支持は本物。` : "";
+    return `認知 上位${aw}% / 熱量 上位${pa}%（${quadLabel}）。${satNote}マス施策・大量展開が効く。`;
   }
   if (w.quadrant === "wordofmouth" && pa != null) {
-    return `熱量は上位${pa}%と高いが認知はこれから。"口コミ型・ダークホース候補"。早期に張ると先行者利益。`;
+    const awNote = aw != null ? `認知は上位${aw}%とこれからだが、` : "";
+    return `${awNote}熱量は上位${pa}%（${quadLabel}）。早期に張ると先行者利益＝配信レコメンド・継続施策が有効。`;
   }
   if (w.quadrant === "fastburn" && aw != null) {
-    return `認知は上位${aw}%だが熱量・定着が弱い"初速一発型"。話題は最初だけになりやすく短期施策向き。`;
+    const paNote = pa != null ? `熱量は上位${pa}%と` : "";
+    return `認知は上位${aw}%だが${paNote}定着が弱い（${quadLabel}）。話題は最初だけになりやすく短期施策向き。`;
   }
   // niche
   if (pa != null) {
-    return `認知・熱量とも控えめだがコアは濃い"ニッチ深掘り型"。コア層向けの有料施策が向く。`;
+    const satNote = sat != null ? `満足度は上位${sat}%。` : "";
+    return `認知・熱量とも控えめだがコアは濃い（${quadLabel}）。${satNote}コア層向けの有料施策・限定グッズが向く。`;
   }
-  return `クール内ポジションを相対評価。各指標は偏差値（平均50）。`;
+  return `クール内ポジションを相対評価（${quadLabel}）。各指標は偏差値（平均50）。`;
 }
 
 /** 配列を偏差値（mean50/sd10）に変換するクロージャを返す */
@@ -476,6 +489,8 @@ async function getWorkCohortPositionUncached(workId: string): Promise<WorkCohort
     overhyped: me.overhyped,
     quadrant: me.quadrant,
     darkhorse: me.darkhorse,
+    satisfactionPct: me.percentiles.satisfaction,
+    buzzRatingGap: me.buzzRatingGap,
   });
 
   return {
