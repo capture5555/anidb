@@ -366,7 +366,7 @@ function RolePresetsPanel({
             <Link
               key={rd.key}
               href={buildRoleHref(rd.key, currentSp)}
-              className={`inline-block whitespace-nowrap px-3.5 py-1 rounded-full text-xs font-bold transition-colors ${
+              className={`inline-block whitespace-nowrap px-3.5 py-2 sm:py-1.5 rounded-full text-xs font-bold transition-colors ${
                 active
                   ? "bg-accent text-white"
                   : "bg-surface border border-line text-ink-soft hover:border-line-strong hover:text-ink"
@@ -455,7 +455,7 @@ export default async function AnalyticsPage({
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
-      <div className="flex items-baseline gap-3 pt-8 mb-3">
+      <div className="flex items-baseline gap-3 pt-6 sm:pt-8 mb-3">
         <h1 className="text-xl sm:text-2xl font-black text-ink">アニメ分析</h1>
       </div>
 
@@ -500,7 +500,7 @@ export default async function AnalyticsPage({
             <li key={t.key}>
               <Link
                 href={t.href}
-                className={`inline-block whitespace-nowrap px-4 sm:px-7 py-2.5 font-bold text-[0.95rem] border-b-[3px] transition-colors ${
+                className={`inline-block whitespace-nowrap px-3 sm:px-7 py-3 sm:py-2.5 font-bold text-[0.9rem] sm:text-[0.95rem] border-b-[3px] transition-colors ${
                   view === t.key ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink-soft"
                 }`}
               >
@@ -1532,9 +1532,9 @@ async function BuzzSection() {
         ) : (
           <ol className="divide-y divide-line">
             {cohort.map((c, i) => (
-              <li key={c.workId} className="flex items-center gap-3 py-2.5">
+              <li key={c.workId} className="flex items-start gap-3 py-2.5">
                 <span
-                  className={`w-5 text-right font-black tabular-nums shrink-0 ${
+                  className={`w-5 text-right font-black tabular-nums shrink-0 mt-0.5 ${
                     i < 3 ? "text-accent" : "text-muted"
                   }`}
                 >
@@ -1543,17 +1543,21 @@ async function BuzzSection() {
                 <Link href={`/analytics/works/${c.workId}`} className="shrink-0">
                   <WorkCover id={c.workId} title={c.title} url={c.posterUrl} className="w-9 h-12 rounded-md" />
                 </Link>
-                <Link
-                  href={`/analytics/works/${c.workId}`}
-                  className="flex-1 min-w-0 text-sm font-bold text-ink hover:text-primary transition truncate"
-                >
-                  {c.title}
-                </Link>
-                <BuzzVolumeGauge volume={c.volume} />
-                <span className="text-xs font-bold text-ink-soft tabular-nums shrink-0 w-7 text-right">
-                  {Math.max(0, Math.min(5, Math.round(c.volume)))}/5
-                </span>
-                <BuzzSentimentChip sentiment={c.sentiment} />
+                <div className="flex-1 min-w-0">
+                  <Link
+                    href={`/analytics/works/${c.workId}`}
+                    className="block text-sm font-bold text-ink hover:text-primary transition truncate"
+                  >
+                    {c.title}
+                  </Link>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <BuzzVolumeGauge volume={c.volume} />
+                    <span className="text-xs font-bold text-ink-soft tabular-nums shrink-0">
+                      {Math.max(0, Math.min(5, Math.round(c.volume)))}/5
+                    </span>
+                    <BuzzSentimentChip sentiment={c.sentiment} />
+                  </div>
+                </div>
               </li>
             ))}
           </ol>
@@ -1583,9 +1587,9 @@ async function BuzzSection() {
           <SectionNote text={epLeadersComment(epLeaders)} />
           <ol className="divide-y divide-line">
             {epLeaders.map((e, i) => (
-              <li key={`${e.workId}-${e.episodeId ?? i}`} className="flex items-center gap-3 py-2.5">
+              <li key={`${e.workId}-${e.episodeId ?? i}`} className="flex items-start gap-3 py-2.5">
                 <span
-                  className={`w-5 text-right font-black tabular-nums shrink-0 ${
+                  className={`w-5 text-right font-black tabular-nums shrink-0 mt-0.5 ${
                     i < 3 ? "text-accent" : "text-muted"
                   }`}
                 >
@@ -1601,16 +1605,18 @@ async function BuzzSection() {
                   >
                     {e.title}
                   </Link>
-                  <span className="text-[0.72rem] text-muted">
+                  <span className="block text-[0.72rem] text-muted truncate">
                     {e.episodeLabel}
                     {e.topics[0] ? ` ・ ${e.topics[0]}` : ""}
                   </span>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <BuzzVolumeGauge volume={e.volume} />
+                    <span className="text-xs font-bold text-ink-soft tabular-nums shrink-0">
+                      {Math.max(0, Math.min(5, Math.round(e.volume)))}/5
+                    </span>
+                    <BuzzSentimentChip sentiment={e.sentiment} />
+                  </div>
                 </div>
-                <BuzzVolumeGauge volume={e.volume} />
-                <span className="text-xs font-bold text-ink-soft tabular-nums shrink-0 w-7 text-right">
-                  {Math.max(0, Math.min(5, Math.round(e.volume)))}/5
-                </span>
-                <BuzzSentimentChip sentiment={e.sentiment} />
               </li>
             ))}
           </ol>
@@ -2045,19 +2051,21 @@ async function ScorecardSection() {
           </p>
           <ol className="space-y-2">
             {darkhorses.map((w, i) => (
-              <li key={w.workId} className="flex items-center gap-3">
+              <li key={w.workId} className="flex items-start gap-3 py-1">
                 <span className={`w-5 text-right font-black tabular-nums shrink-0 ${i < 3 ? "text-accent" : "text-muted"}`}>
                   {i + 1}
                 </span>
-                <Link
-                  href={`/works/${w.workId}`}
-                  className="flex-1 min-w-0 text-sm font-medium text-ink hover:text-primary transition truncate"
-                >
-                  {w.title}
-                </Link>
-                <span className="text-xs text-muted tabular-nums shrink-0">
-                  熱量{w.passionDev} / 認知{w.awarenessDev}
-                </span>
+                <div className="flex-1 min-w-0">
+                  <Link
+                    href={`/works/${w.workId}`}
+                    className="block text-sm font-medium text-ink hover:text-primary transition truncate"
+                  >
+                    {w.title}
+                  </Link>
+                  <span className="text-[0.68rem] text-muted tabular-nums">
+                    熱量{w.passionDev} / 認知{w.awarenessDev}
+                  </span>
+                </div>
                 <span className="text-sm font-black text-accent tabular-nums shrink-0 w-10 text-right">
                   +{w.darkhorse}
                 </span>
@@ -2159,7 +2167,7 @@ function DiscoveryView({ works }: { works: ScorecardWork[] }) {
               {sleepers.map((w, i) => {
                 const gap = (w.scoreDev! - w.awarenessDev).toFixed(1);
                 return (
-                  <li key={w.workId} className="flex items-center gap-3 py-2">
+                  <li key={w.workId} className="flex items-start gap-3 py-2">
                     <span
                       className={`w-5 text-right font-black tabular-nums shrink-0 ${
                         i < 3 ? "text-accent" : "text-muted"
@@ -2167,16 +2175,18 @@ function DiscoveryView({ works }: { works: ScorecardWork[] }) {
                     >
                       {i + 1}
                     </span>
-                    <Link
-                      href={`/analytics/works/${w.workId}`}
-                      className="flex-1 min-w-0 text-sm font-medium text-ink hover:text-primary transition truncate"
-                    >
-                      {w.title}
-                    </Link>
-                    <span className="text-xs text-muted tabular-nums shrink-0 whitespace-nowrap">
-                      評価{w.scoreDev!.toFixed(0)} / 認知{w.awarenessDev.toFixed(0)}
-                    </span>
-                    <span className="text-xs font-black text-emerald-600 tabular-nums shrink-0 w-14 text-right whitespace-nowrap">
+                    <div className="flex-1 min-w-0">
+                      <Link
+                        href={`/analytics/works/${w.workId}`}
+                        className="block text-sm font-medium text-ink hover:text-primary transition truncate"
+                      >
+                        {w.title}
+                      </Link>
+                      <span className="text-[0.68rem] text-muted tabular-nums">
+                        評価{w.scoreDev!.toFixed(0)} / 認知{w.awarenessDev.toFixed(0)}
+                      </span>
+                    </div>
+                    <span className="text-xs font-black text-emerald-600 tabular-nums shrink-0 w-10 text-right">
                       +{gap}
                     </span>
                   </li>
@@ -2200,7 +2210,7 @@ function DiscoveryView({ works }: { works: ScorecardWork[] }) {
               {overhyped.map((w, i) => {
                 const gap = (w.awarenessDev - w.scoreDev!).toFixed(1);
                 return (
-                  <li key={w.workId} className="flex items-center gap-3 py-2">
+                  <li key={w.workId} className="flex items-start gap-3 py-2">
                     <span
                       className={`w-5 text-right font-black tabular-nums shrink-0 ${
                         i < 3 ? "text-accent" : "text-muted"
@@ -2208,16 +2218,18 @@ function DiscoveryView({ works }: { works: ScorecardWork[] }) {
                     >
                       {i + 1}
                     </span>
-                    <Link
-                      href={`/analytics/works/${w.workId}`}
-                      className="flex-1 min-w-0 text-sm font-medium text-ink hover:text-primary transition truncate"
-                    >
-                      {w.title}
-                    </Link>
-                    <span className="text-xs text-muted tabular-nums shrink-0 whitespace-nowrap">
-                      認知{w.awarenessDev.toFixed(0)} / 評価{w.scoreDev!.toFixed(0)}
-                    </span>
-                    <span className="text-xs font-black text-amber-500 tabular-nums shrink-0 w-14 text-right whitespace-nowrap">
+                    <div className="flex-1 min-w-0">
+                      <Link
+                        href={`/analytics/works/${w.workId}`}
+                        className="block text-sm font-medium text-ink hover:text-primary transition truncate"
+                      >
+                        {w.title}
+                      </Link>
+                      <span className="text-[0.68rem] text-muted tabular-nums">
+                        認知{w.awarenessDev.toFixed(0)} / 評価{w.scoreDev!.toFixed(0)}
+                      </span>
+                    </div>
+                    <span className="text-xs font-black text-amber-500 tabular-nums shrink-0 w-10 text-right">
                       +{gap}
                     </span>
                   </li>
@@ -3427,7 +3439,7 @@ async function IndustrySection({
           <Link
             key={p.key}
             href={p.key === "all" ? "/analytics?view=industry" : `/analytics?view=industry&period=${p.key}`}
-            className={`text-xs font-medium px-3 py-1 rounded-full transition ${
+            className={`text-xs font-medium px-3 py-1.5 rounded-full transition ${
               key === p.key
                 ? "bg-ink text-white"
                 : "bg-surface border border-line text-ink-soft hover:border-line-strong"
@@ -3975,15 +3987,17 @@ function GenreOpportunityMapCard({ insights }: { insights: GenreInsight[] }) {
         </p>
         <ol className="divide-y divide-line">
           {top5.map((p, i) => (
-            <li key={p.g.genre} className="flex items-center gap-3 py-2">
+            <li key={p.g.genre} className="flex items-start gap-3 py-2">
               <span className={`w-5 text-right font-black tabular-nums shrink-0 ${i < 3 ? "text-accent" : "text-muted"}`}>
                 {i + 1}
               </span>
-              <span className="flex-1 min-w-0 text-sm font-medium text-ink truncate">{p.g.genre}</span>
-              <span className="text-xs text-muted tabular-nums shrink-0 whitespace-nowrap">
-                平均人気{p.g.avgPopularity.toLocaleString()} / {p.g.worksCount}本 / スコア
-                {p.g.avgScore != null ? p.g.avgScore.toFixed(1) : "—"}
-              </span>
+              <div className="flex-1 min-w-0">
+                <span className="block text-sm font-medium text-ink truncate">{p.g.genre}</span>
+                <span className="block text-[0.68rem] text-muted tabular-nums">
+                  人気{p.g.avgPopularity.toLocaleString()} / {p.g.worksCount}本
+                  {p.g.avgScore != null ? ` / スコア${p.g.avgScore.toFixed(1)}` : ""}
+                </span>
+              </div>
               <span className="text-xs font-black text-emerald-600 tabular-nums shrink-0 w-12 text-right">
                 +{p.opportunity}
               </span>
@@ -4444,7 +4458,7 @@ function BarList({ rows, color }: { rows: { label: string; value: number; max: n
       {rows.map((r, i) => (
         <li key={r.label} className="flex items-center gap-3">
           <span className="w-6 text-right text-xs text-muted tabular-nums shrink-0">{i + 1}</span>
-          <span className="w-40 sm:w-56 truncate text-sm font-medium shrink-0">{r.label}</span>
+          <span className="w-28 sm:w-40 lg:w-56 truncate text-sm font-medium shrink-0">{r.label}</span>
           <div className="flex-1 min-w-0 bg-paper rounded-full h-4">
             <div
               className="h-4 rounded-full"

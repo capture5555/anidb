@@ -21,7 +21,7 @@ export function SiteHeader() {
               </svg>
             </span>
             <span className="font-black text-[1.05rem] sm:text-lg tracking-tight leading-none">
-              アニメ放送カレンダー
+              アニメ作品データベース
             </span>
           </Link>
           <nav className="flex items-center gap-0.5 sm:gap-1 text-sm overflow-x-auto">
