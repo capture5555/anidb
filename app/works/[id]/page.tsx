@@ -18,6 +18,14 @@ import {
   CHANNELS_COOKIE,
 } from "@/lib/channels";
 
+/** あらすじが日本語かどうかの簡易判定（ひらがな/カタカナ/漢字が2割以上なら日本語）。
+ *  出典(AniList)が英語のあらすじは読めないため非表示にする用途。 */
+function isLikelyJapanese(text: string): boolean {
+  const jp = (text.match(/[぀-ヿ㐀-鿿]/g) ?? []).length;
+  const total = text.replace(/\s/g, "").length;
+  return total > 0 && jp / total >= 0.2;
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -140,8 +148,8 @@ export default async function WorkDetailPage({
       {/* 本文 2カラム */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5 py-5">
         <div className="space-y-5 min-w-0">
-          {/* あらすじ */}
-          {work.synopsis && (
+          {/* あらすじ（日本語のときのみ表示。出典が英語(AniList)の場合は読めないため出さない） */}
+          {work.synopsis && isLikelyJapanese(work.synopsis) && (
             <section className="card p-5 sm:p-6">
               <h2 className="section-title text-lg mb-3">あらすじ</h2>
               <p className="text-[0.95rem] leading-[1.9] text-ink-soft whitespace-pre-wrap">
