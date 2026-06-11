@@ -136,7 +136,7 @@ export function seasonSummary(card: CoolScorecard): string[] {
  * 2行未満のデータでは null を返す。
  */
 export function studioInsight(rows: StudioScorecard[]): string | null {
-  if (rows.length < 2) return null;
+  if (rows.length === 0) return null;
 
   // 打率トップ（NaN/0 を除いて最大）
   const byBa = rows
@@ -210,7 +210,7 @@ export function vaInsight(rows: VaScorecard[]): string | null {
 export function genreOpportunity(rows: GenreInsight[]): string | null {
   // worksCount >= 2 のみ対象
   const eligible = rows.filter((r) => r.worksCount >= 2);
-  if (eligible.length < 4) return null;
+  if (eligible.length < 2) return null;
 
   // avgPopularity の上位25%閾値
   const sorted = [...eligible].sort((a, b) => b.avgPopularity - a.avgPopularity);

@@ -105,7 +105,7 @@ export function retentionSectionComment(analysis: WorkAnalysis): string | null {
  */
 export function heatSectionComment(analysis: WorkAnalysis): string | null {
   const eps = analysis.episodes.filter((e) => e.totalComments > 0);
-  if (eps.length < 2) return null;
+  if (eps.length === 0) return null;
   const top = eps.reduce((best, e) => (e.totalComments > best.totalComments ? e : best), eps[0]);
   const avg = eps.reduce((a, e) => a + e.totalComments, 0) / eps.length;
   if (top.totalComments <= 0 || avg <= 0) return null;
@@ -156,7 +156,7 @@ export function episodeJikkyoTendency(input: {
   peakPerMinute?: number;
 }): string | null {
   const total = input.totalComments;
-  if (total < 20) return null; // 母数が少なすぎる回はメモなし
+  if (total < 5) return null; // 母数が少なすぎる回はメモなし
   const entries = (Object.entries(input.reactionCounts) as [ReactionCategory, number][])
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1]);
@@ -185,12 +185,17 @@ export function episodeJikkyoTendency(input: {
  * 最も残留率が安定している作品と最も落ちた作品を対比する。
  */
 export function retentionSeriesComment(series: RetentionSeries[]): string | null {
-  if (series.length < 2) return null;
+  if (series.length === 0) return null;
   // 最新話残留率（最後のポイント）が確定している系列だけ対象
   const withLast = series
     .map((s) => ({ title: s.title, last: s.points[s.points.length - 1]?.pct ?? null }))
     .filter((s): s is { title: string; last: number } => s.last != null && s.last > 0);
-  if (withLast.length < 2) return null;
+  if (withLast.length === 0) return null;
+  if (withLast.length === 1) {
+    const only = withLast[0];
+    const trend = only.last >= 90 ? "ほぼ落ちずに維持" : only.last >= 60 ? "緩やかに減少" : only.last >= 35 ? "中盤でやや離脱" : "序盤から大きく離脱";
+    return `「${only.title}」の残留率は${Math.round(only.last)}%（${trend}）。`;
+  }
   const best = withLast.reduce((a, b) => (b.last > a.last ? b : a));
   const worst = withLast.reduce((a, b) => (b.last < a.last ? b : a));
   if (best.title === worst.title) return null;
@@ -214,7 +219,7 @@ export function peakMomentsComment(peaks: PeakMoment[]): string | null {
  * 笑い・感動・作画で最も高率だった作品をひとまとめに紹介する。
  */
 export function reactionRankingComment(ratios: ReactionRatioWork[]): string | null {
-  if (ratios.length < 3) return null;
+  if (ratios.length === 0) return null;
   const topOf = (cat: "laugh" | "cry" | "sakuga"): { title: string; pct: number } | null => {
     const sorted = ratios
       .filter((w) => (w.ratios[cat] ?? 0) > 0)
@@ -250,7 +255,7 @@ export function cohortXBuzzComment(cohort: CohortXBuzz[]): string | null {
  * 「実況で熱いがXは静か」「Xで話題だが実況は静か」の代表作を指摘する。
  */
 export function xBuzzVsJikkyoComment(points: XBuzzVsJikkyo[]): string | null {
-  if (points.length < 4) return null;
+  if (points.length === 0) return null;
   const maxJikkyo = Math.max(...points.map((p) => p.jikkyoComments));
   const midJikkyo = maxJikkyo / 2;
   const midVol = 2.5;
@@ -353,7 +358,7 @@ export function vaScorecardComment(rows: VaScorecard[]): string | null {
  * 平均スコアトップと打率トップを示す。
  */
 export function staffBucketComment(rows: StaffScorecard[]): string | null {
-  if (rows.length < 2) return null;
+  if (rows.length === 0) return null;
   const topScore = rows.reduce((a, b) => (b.avgScore > a.avgScore ? b : a));
   const withBa = rows.filter((r) => isFinite(r.battingAverage) && r.battingAverage > 0);
   if (withBa.length === 0) return `平均スコア1位は${topScore.name}（${Math.round(topScore.avgScore)}点）。`;
@@ -410,7 +415,7 @@ export function ratedRankingComment(works: RatedWork[], metric: "anilist" | "mal
  * 平均スコア最高のジャンルと作品数最多のジャンルを示す。
  */
 export function genreTrendsComment(insights: GenreInsight[]): string | null {
-  if (insights.length < 3) return null;
+  if (insights.length === 0) return null;
   const withScore = insights.filter((g) => g.avgScore != null);
   const parts: string[] = [];
   if (withScore.length > 0) {
@@ -428,7 +433,7 @@ export function genreTrendsComment(insights: GenreInsight[]): string | null {
  * データが薄い（4作品未満）場合は null。
  */
 export function awarenessHeatComment(rows: AwarenessHeatRow[]): string | null {
-  if (rows.length < 4) return null;
+  if (rows.length === 0) return null;
 
   const darkhorses = rows.filter((r) => r.quadrant === "fan_darkhorse");
   const hits = rows.filter((r) => r.quadrant === "total_hit");
@@ -495,7 +500,7 @@ export function fastStartComment(rows: FastStartRow[]): string | null {
  * データが薄い（4作品未満）場合は null。
  */
 export function globalGapComment(rows: GlobalGapRow[]): string | null {
-  if (rows.length < 4) return null;
+  if (rows.length === 0) return null;
 
   const overseasLeads = rows.filter((r) => r.kind === "overseas_lead");
   const domesticLeads = rows.filter((r) => r.kind === "domestic_lead");
