@@ -33,6 +33,7 @@ import {
 import { getGenreInsightsUncached } from "../lib/analytics/genres.ts";
 import { getFranchiseMomentumUncached } from "../lib/analytics/franchise.ts";
 import { getCohortReactionAverageUncached } from "../lib/analytics/reactionFingerprint.ts";
+import { getTimeslotHeatmapUncached } from "../lib/analytics/timeslots.ts";
 import {
   getReactionRatiosLive,
   getJikkyoRetentionSeriesLive,
@@ -63,6 +64,7 @@ const UNITS: Unit[] = [
   { key: "jikkyo_retention", compute: () => getJikkyoRetentionSeriesLive(8), count: (r) => r?.series?.length ?? 0 },
   { key: "peak_moments", compute: () => getPeakMomentsLive(10), count: (r) => r?.length ?? 0 },
   { key: "annict_retention", compute: () => getRetentionSeriesLive(8), count: (r) => r?.series?.length ?? 0 },
+  { key: "timeslot_heatmap", compute: getTimeslotHeatmapUncached, count: (r) => r?.cells?.length ?? 0 },
 ];
 
 /** 1ユニットを計算→保存。失敗しても throw せず結果オブジェクトを返す。 */
