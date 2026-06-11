@@ -7,7 +7,7 @@
 
 import type { CoolScorecard } from "./scorecard";
 import type { StudioScorecard } from "./studios";
-import type { VaScorecard } from "./people";
+import type { VaScorecard, StaffScorecard } from "./people";
 import type { GenreInsight } from "./genres";
 import type { FranchiseGroup } from "./franchise";
 
@@ -248,4 +248,80 @@ export function franchiseInsight(groups: FranchiseGroup[]): string | null {
     decayingCount > 0 ? `一方、縮小傾向のIPは ${decayingCount} 系列。` : "";
 
   return `最も伸びているIPは「${top.latestTitle}」（系列人気 ${x}倍）。${decayPart}続編greenlight・フランチャイズ投資の判断材料に。`;
+}
+
+/* ----------------------------------------------------------------
+   compareInsight — 声優比較のワンライン要約
+   ---------------------------------------------------------------- */
+
+/**
+ * 2〜3名の声優スコアカードを比較し、主演適性・モメンタムを1行で要約する。
+ * データ不足（leadAvgScore が全員 null など）のときは null を返す。
+ */
+export function compareInsight(people: VaScorecard[]): string | null {
+  if (people.length < 2) return null;
+
+  // 主演適性: leadAvgScore 最大の人
+  const withLead = people.filter((p) => p.leadAvgScore != null);
+  const bestLead =
+    withLead.length > 0
+      ? withLead.reduce((a, b) =>
+          (b.leadAvgScore ?? 0) > (a.leadAvgScore ?? 0) ? b : a,
+        )
+      : null;
+
+  // モメンタム: momentum 最大の人
+  const withMom = people.filter((p) => p.momentum != null);
+  const bestMom =
+    withMom.length > 0
+      ? withMom.reduce((a, b) =>
+          (b.momentum ?? -Infinity) > (a.momentum ?? -Infinity) ? b : a,
+        )
+      : null;
+
+  const parts: string[] = [];
+
+  if (bestLead != null) {
+    parts.push(
+      `主演適性は${bestLead.name}（主演作平均 ${bestLead.leadAvgScore}）`,
+    );
+  }
+
+  if (bestMom != null && (bestMom.momentum ?? 0) !== 0) {
+    const sign = (bestMom.momentum ?? 0) > 0 ? "+" : "";
+    const val = Math.round((bestMom.momentum ?? 0) * 10) / 10;
+    parts.push(`勢いは${bestMom.name}（モメンタム ${sign}${val}）`);
+  }
+
+  if (parts.length === 0) return null;
+
+  return parts.join("、") + "。";
+}
+
+/**
+ * 2〜3名のスタッフスコアカードを比較し、平均スコア・一貫性を1行で要約する。
+ * データ不足のときは null を返す。
+ */
+export function compareStaffInsight(people: StaffScorecard[]): string | null {
+  if (people.length < 2) return null;
+
+  // 平均スコアトップ
+  const bestScore = people.reduce((a, b) => (b.avgScore > a.avgScore ? b : a));
+
+  // 一貫性トップ
+  const withCon = people.filter((p) => p.consistency != null);
+  const bestCon =
+    withCon.length > 0
+      ? withCon.reduce((a, b) =>
+          (b.consistency ?? 0) > (a.consistency ?? 0) ? b : a,
+        )
+      : null;
+
+  const parts: string[] = [];
+  parts.push(`平均スコアトップは${bestScore.name}（${bestScore.avgScore}）`);
+  if (bestCon != null && bestCon.name !== bestScore.name) {
+    parts.push(`一貫性トップは${bestCon.name}（${bestCon.consistency}）`);
+  }
+
+  return parts.join("、") + "。";
 }

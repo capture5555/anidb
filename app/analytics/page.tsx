@@ -45,7 +45,7 @@ import {
   type CollectionJob,
   type CollectionGap,
 } from "@/lib/analytics/collectionHealth";
-import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight } from "@/lib/analytics/insights";
+import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight, compareInsight, compareStaffInsight } from "@/lib/analytics/insights";
 import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
@@ -83,7 +83,7 @@ function parsePeriod(p: string | undefined, curYear: number): { filter: Filter; 
 export default async function AnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; period?: string; basis?: string }>;
+  searchParams: Promise<{ view?: string; period?: string; basis?: string; compare?: string; comparestaff?: string }>;
 }) {
   const sp = await searchParams;
   const view =
@@ -133,7 +133,7 @@ export default async function AnalyticsPage({
       ) : view === "scorecard" ? (
         <ScorecardSection />
       ) : view === "people" ? (
-        <PeopleSection />
+        <PeopleSection compare={sp.compare} comparestaff={sp.comparestaff} />
       ) : view === "collection" ? (
         <CollectionSection />
       ) : (
@@ -785,11 +785,125 @@ function QuadrantTag({ q }: { q: Quadrant }) {
 
 /* ================================================================ 人材 */
 
-async function PeopleSection() {
+/** URLSearchParams から compare 名リストを抽出（最大 3 件）。*/
+function parseCompareNames(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((n) => decodeURIComponent(n.trim()))
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+/** 現在の compare リストに name を追加した URL を返す（既存は除去、上限3）。 */
+function buildCompareHref(currentNames: string[], name: string, base: string): string {
+  const params = new URLSearchParams(base);
+  // already selected → remove
+  if (currentNames.includes(name)) {
+    const next = currentNames.filter((n) => n !== name);
+    if (next.length > 0) {
+      params.set("compare", next.map(encodeURIComponent).join(","));
+    } else {
+      params.delete("compare");
+    }
+  } else if (currentNames.length < 3) {
+    const next = [...currentNames, name];
+    params.set("compare", next.map(encodeURIComponent).join(","));
+  } else {
+    // cap reached — replace oldest
+    const next = [...currentNames.slice(1), name];
+    params.set("compare", next.map(encodeURIComponent).join(","));
+  }
+  return `/analytics?${params.toString()}`;
+}
+
+/** compare=all-cleared URL */
+function buildClearHref(base: string): string {
+  const params = new URLSearchParams(base);
+  params.delete("compare");
+  return `/analytics?${params.toString()}`;
+}
+
+/** comparestaff clear URL */
+function buildClearStaffHref(base: string): string {
+  const params = new URLSearchParams(base);
+  params.delete("comparestaff");
+  return `/analytics?${params.toString()}`;
+}
+
+/** staff compare href builder for a bucket */
+function buildStaffCompareHref(
+  currentRaw: string | undefined,
+  roleKey: string,
+  name: string,
+  base: string,
+): string {
+  const params = new URLSearchParams(base);
+  // Parse current: "roleKey:name1,name2"
+  const [curRole, curNamesRaw] = currentRaw ? currentRaw.split(":") : ["", ""];
+  const curNames: string[] =
+    curRole === roleKey && curNamesRaw
+      ? curNamesRaw
+          .split(",")
+          .map((n) => decodeURIComponent(n.trim()))
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
+
+  let next: string[];
+  if (curNames.includes(name)) {
+    next = curNames.filter((n) => n !== name);
+  } else if (curNames.length < 3) {
+    next = [...curNames, name];
+  } else {
+    next = [...curNames.slice(1), name];
+  }
+
+  if (next.length === 0) {
+    params.delete("comparestaff");
+  } else {
+    params.set(
+      "comparestaff",
+      `${roleKey}:${next.map(encodeURIComponent).join(",")}`,
+    );
+  }
+  return `/analytics?${params.toString()}`;
+}
+
+/** Base query string preserving view=people (and other params) */
+function peopleSp(compare?: string, comparestaff?: string): string {
+  const p = new URLSearchParams();
+  p.set("view", "people");
+  if (compare) p.set("compare", compare);
+  if (comparestaff) p.set("comparestaff", comparestaff);
+  return p.toString();
+}
+
+async function PeopleSection({
+  compare,
+  comparestaff,
+}: {
+  compare?: string;
+  comparestaff?: string;
+}) {
   const [vas, staffBuckets] = await Promise.all([
     getVoiceActorScorecards({ limit: 30 }).catch(() => []),
     getStaffScorecards({ limit: 15 }).catch(() => []),
   ]);
+
+  const compareNames = parseCompareNames(compare);
+  const baseSp = peopleSp(compare, comparestaff);
+
+  // Staff compare: parse "roleKey:name1,name2"
+  const [staffRoleKey, staffNamesRaw] = comparestaff ? comparestaff.split(":") : ["", ""];
+  const staffCompareNames: string[] =
+    staffRoleKey && staffNamesRaw
+      ? staffNamesRaw
+          .split(",")
+          .map((n) => decodeURIComponent(n.trim()))
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
 
   return (
     <div className="space-y-5">
@@ -798,6 +912,30 @@ async function PeopleSection() {
         const vi = vaInsight(vas);
         return vi ? <AutoInsight lines={[vi]} /> : null;
       })()}
+
+      {/* 比較バー（1名以上選択時） */}
+      {compareNames.length >= 1 && (
+        <div className="rounded-lg border border-line bg-surface px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span className="font-bold text-ink-soft text-xs shrink-0">比較中:</span>
+          <span className="font-bold text-ink">{compareNames.join(" vs ")}</span>
+          <Link
+            href={buildClearHref(baseSp)}
+            className="ml-auto text-xs text-muted hover:text-ink transition shrink-0"
+          >
+            クリア
+          </Link>
+        </div>
+      )}
+
+      {/* 声優比較パネル（2名以上） */}
+      {compareNames.length >= 2 && (
+        <TalentComparePanel
+          compareNames={compareNames}
+          vas={vas}
+          baseSp={baseSp}
+        />
+      )}
+
       {/* 声優スコアカード */}
       <section className="card p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
@@ -831,7 +969,7 @@ async function PeopleSection() {
           <p className="text-sm text-muted">スコアデータが十分に集まっていません。</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-sm border-collapse">
+            <table className="w-full min-w-[720px] text-sm border-collapse">
               <thead>
                 <tr className="text-xs text-muted border-b border-line">
                   <th className="text-left font-bold py-2 pr-2 w-6">#</th>
@@ -842,11 +980,18 @@ async function PeopleSection() {
                   <th className="text-center font-bold py-2 px-1 w-14">打率</th>
                   <th className="text-center font-bold py-2 px-1 w-20">モメンタム</th>
                   <th className="text-center font-bold py-2 pl-3 w-12">注目</th>
+                  <th className="text-center font-bold py-2 pl-2 w-14">比較</th>
                 </tr>
               </thead>
               <tbody>
                 {vas.map((v, i) => (
-                  <VaRow key={v.name} v={v} rank={i + 1} />
+                  <VaRow
+                    key={v.name}
+                    v={v}
+                    rank={i + 1}
+                    compareNames={compareNames}
+                    compareHref={buildCompareHref(compareNames, v.name, baseSp)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -857,9 +1002,47 @@ async function PeopleSection() {
       {/* スタッフ実績 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {staffBuckets.map((bucket) => (
-          <StaffBucketCard key={bucket.role} label={bucket.label} people={bucket.people} />
+          <StaffBucketCard
+            key={bucket.role}
+            label={bucket.label}
+            roleKey={bucket.role}
+            people={bucket.people}
+            staffCompareNames={bucket.role === staffRoleKey ? staffCompareNames : []}
+            comparestaff={comparestaff}
+            baseSp={baseSp}
+          />
         ))}
       </div>
+
+      {/* スタッフ比較パネル */}
+      {staffCompareNames.length >= 2 && (() => {
+        const bucket = staffBuckets.find((b) => b.role === staffRoleKey);
+        if (!bucket) return null;
+        const selected = staffCompareNames
+          .map((n) => bucket.people.find((p) => p.name === n))
+          .filter((p): p is StaffScorecard => p != null);
+        if (selected.length < 2) return null;
+        const insight = compareStaffInsight(selected);
+        return (
+          <section className="card p-5 sm:p-6 border-accent/40">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h2 className="section-title text-lg">
+                スタッフ比較 — {bucket.label}
+              </h2>
+              <Link
+                href={buildClearStaffHref(baseSp)}
+                className="text-xs text-muted hover:text-ink transition"
+              >
+                クリア
+              </Link>
+            </div>
+            {insight && (
+              <p className="text-sm text-ink-soft mb-3 leading-relaxed">{insight}</p>
+            )}
+            <StaffCompareTable people={selected} />
+          </section>
+        );
+      })()}
 
       <p className="text-xs text-muted leading-relaxed">
         ※ スコアはAniList（無ければMAL換算）由来の参考値で、各サービス利用者を母数とした評価です。
@@ -869,10 +1052,204 @@ async function PeopleSection() {
   );
 }
 
-function VaRow({ v, rank }: { v: VaScorecard; rank: number }) {
-  const baStr = formatBa(v.battingAverage);
+/* ---------------------------------------------------------------- 声優比較パネル */
+
+function TalentComparePanel({
+  compareNames,
+  vas,
+  baseSp,
+}: {
+  compareNames: string[];
+  vas: VaScorecard[];
+  baseSp: string;
+}) {
+  const selected = compareNames.map((n) => ({
+    name: n,
+    card: vas.find((v) => v.name === n) ?? null,
+  }));
+
+  const found = selected
+    .map((s) => s.card)
+    .filter((c): c is VaScorecard => c != null);
+
+  const insight = found.length >= 2 ? compareInsight(found) : null;
+
+  // Best value per metric (index into selected)
+  function bestIdx(getter: (c: VaScorecard) => number | null): number {
+    let best = -1;
+    let bestVal = -Infinity;
+    selected.forEach((s, i) => {
+      if (s.card == null) return;
+      const v = getter(s.card);
+      if (v != null && v > bestVal) {
+        bestVal = v;
+        best = i;
+      }
+    });
+    return best;
+  }
+
+  const metrics: { label: string; getter: (c: VaScorecard) => number | null; fmt: (v: number) => string }[] = [
+    { label: "出演作品数", getter: (c) => c.appearances, fmt: (v) => String(v) },
+    { label: "主演率", getter: (c) => c.leadRatio, fmt: (v) => `${Math.round(v * 100)}%` },
+    { label: "主演作平均スコア", getter: (c) => c.leadAvgScore, fmt: (v) => v.toFixed(1) },
+    { label: "平均スコア", getter: (c) => c.avgScore, fmt: (v) => v.toFixed(1) },
+    { label: "打率", getter: (c) => c.battingAverage, fmt: (v) => formatBa(v) },
+    {
+      label: "モメンタム",
+      getter: (c) => c.momentum,
+      fmt: (v) => (v >= 0 ? `+${v.toFixed(1)}` : v.toFixed(1)),
+    },
+    { label: "ブレイク", getter: (c) => (c.breakout ? 1 : 0), fmt: (v) => (v === 1 ? "★" : "—") },
+  ];
+
   return (
-    <tr className="border-b border-line/60 hover:bg-paper/60">
+    <section className="card p-5 sm:p-6 border-accent/40">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h2 className="section-title text-lg">声優サイドバイサイド比較</h2>
+        <Link
+          href={buildClearHref(baseSp)}
+          className="text-xs text-muted hover:text-ink transition"
+        >
+          クリア
+        </Link>
+      </div>
+      {insight && (
+        <p className="text-sm text-ink-soft mb-3 leading-relaxed">{insight}</p>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[480px] text-sm border-collapse">
+          <thead>
+            <tr className="border-b border-line">
+              <th className="text-left font-bold py-2 pr-4 text-xs text-muted w-32">指標</th>
+              {selected.map((s) => (
+                <th key={s.name} className="text-center font-bold py-2 px-2 text-xs text-ink">
+                  {s.name}
+                  {s.card == null && (
+                    <span className="block text-[0.62rem] font-normal text-muted">（圏外）</span>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {metrics.map((m) => {
+              const bi = bestIdx(m.getter);
+              return (
+                <tr key={m.label} className="border-b border-line/50">
+                  <td className="py-2 pr-4 text-xs text-muted font-medium">{m.label}</td>
+                  {selected.map((s, i) => {
+                    if (s.card == null) {
+                      return (
+                        <td key={s.name} className="py-2 px-2 text-center text-xs text-muted">
+                          —
+                        </td>
+                      );
+                    }
+                    const val = m.getter(s.card);
+                    const isBest = i === bi && val != null;
+                    return (
+                      <td
+                        key={s.name}
+                        className={`py-2 px-2 text-center tabular-nums text-xs ${isBest ? "text-accent font-black" : "text-ink-soft font-medium"}`}
+                      >
+                        {val != null ? m.fmt(val) : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {selected.some((s) => s.card == null) && (
+        <p className="text-[0.68rem] text-muted mt-2">
+          ※「圏外」はスコア付き出演3本未満のためランキング対象外。
+        </p>
+      )}
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- スタッフ比較テーブル（共通） */
+
+function StaffCompareTable({ people }: { people: StaffScorecard[] }) {
+  const metrics: { label: string; getter: (c: StaffScorecard) => number | null; fmt: (v: number) => string }[] = [
+    { label: "作品数", getter: (c) => c.works, fmt: (v) => String(v) },
+    { label: "平均スコア", getter: (c) => c.avgScore, fmt: (v) => v.toFixed(1) },
+    { label: "一貫性", getter: (c) => c.consistency, fmt: (v) => String(v) },
+    { label: "打率", getter: (c) => c.battingAverage, fmt: (v) => formatBa(v) },
+  ];
+
+  function bestIdx(getter: (c: StaffScorecard) => number | null): number {
+    let best = -1;
+    let bestVal = -Infinity;
+    people.forEach((p, i) => {
+      const v = getter(p);
+      if (v != null && v > bestVal) {
+        bestVal = v;
+        best = i;
+      }
+    });
+    return best;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[360px] text-sm border-collapse">
+        <thead>
+          <tr className="border-b border-line">
+            <th className="text-left font-bold py-2 pr-4 text-xs text-muted w-28">指標</th>
+            {people.map((p) => (
+              <th key={p.name} className="text-center font-bold py-2 px-2 text-xs text-ink">
+                {p.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {metrics.map((m) => {
+            const bi = bestIdx(m.getter);
+            return (
+              <tr key={m.label} className="border-b border-line/50">
+                <td className="py-2 pr-4 text-xs text-muted font-medium">{m.label}</td>
+                {people.map((p, i) => {
+                  const val = m.getter(p);
+                  const isBest = i === bi && val != null;
+                  return (
+                    <td
+                      key={p.name}
+                      className={`py-2 px-2 text-center tabular-nums text-xs ${isBest ? "text-accent font-black" : "text-ink-soft font-medium"}`}
+                    >
+                      {val != null ? m.fmt(val) : "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function VaRow({
+  v,
+  rank,
+  compareNames,
+  compareHref,
+}: {
+  v: VaScorecard;
+  rank: number;
+  compareNames: string[];
+  compareHref: string;
+}) {
+  const baStr = formatBa(v.battingAverage);
+  const inCompare = compareNames.includes(v.name);
+  return (
+    <tr className={`border-b border-line/60 hover:bg-paper/60 ${inCompare ? "bg-surface" : ""}`}>
       <td className="py-2 pr-2 text-xs text-muted tabular-nums">{rank}</td>
       <td className="py-2 pr-3">
         <span className="font-medium text-ink line-clamp-1">{v.name}</span>
@@ -896,6 +1273,19 @@ function VaRow({ v, rank }: { v: VaScorecard; rank: number }) {
         ) : (
           <span className="text-muted">—</span>
         )}
+      </td>
+      <td className="py-2 pl-2 text-center">
+        <Link
+          href={compareHref}
+          className={`text-xs font-bold px-1.5 py-0.5 rounded transition ${
+            inCompare
+              ? "text-accent"
+              : "text-muted hover:text-ink"
+          }`}
+          title={inCompare ? "比較から除外" : "比較に追加"}
+        >
+          {inCompare ? "✓" : "+比較"}
+        </Link>
       </td>
     </tr>
   );
@@ -921,56 +1311,101 @@ function MomentumTag({ value }: { value: number | null }) {
   return <span className="text-xs font-bold tabular-nums text-muted">±0.0</span>;
 }
 
-function StaffBucketCard({ label, people }: { label: string; people: StaffScorecard[] }) {
+function StaffBucketCard({
+  label,
+  roleKey,
+  people,
+  staffCompareNames,
+  comparestaff,
+  baseSp,
+}: {
+  label: string;
+  roleKey: string;
+  people: StaffScorecard[];
+  staffCompareNames: string[];
+  comparestaff: string | undefined;
+  baseSp: string;
+}) {
   return (
     <section className="card p-5 sm:p-6">
       <h2 className="section-title text-base mb-3">{label}</h2>
       {people.length === 0 ? (
         <p className="text-sm text-muted">データがありません。</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[320px] text-sm border-collapse">
-            <thead>
-              <tr className="text-[0.68rem] text-muted border-b border-line">
-                <th className="text-left font-bold py-1.5 pr-2">名前</th>
-                <th className="text-center font-bold py-1.5 px-1 w-10">作品</th>
-                <th className="text-center font-bold py-1.5 px-1 w-12">平均</th>
-                <th className="text-center font-bold py-1.5 px-1 w-12">一貫性</th>
-                <th className="text-center font-bold py-1.5 px-1 w-12">打率</th>
-                <th className="text-left font-bold py-1.5 pl-2 w-20">直近</th>
-              </tr>
-            </thead>
-            <tbody>
-              {people.map((p) => {
-                const conColor = consistencyColor(p.consistency);
-                return (
-                  <tr key={p.name} className="border-b border-line/60 hover:bg-paper/60">
-                    <td className="py-1.5 pr-2">
-                      <span className="font-medium text-ink line-clamp-1 text-xs">{p.name}</span>
-                    </td>
-                    <td className="py-1.5 px-1 text-center tabular-nums text-xs text-ink-soft">
-                      {p.works}
-                    </td>
-                    <td className="py-1.5 px-1 text-center tabular-nums font-black text-accent text-xs">
-                      {Math.round(p.avgScore)}
-                    </td>
-                    <td
-                      className={`py-1.5 px-1 text-center tabular-nums font-bold text-xs ${conColor}`}
+        <>
+          {staffCompareNames.length >= 1 && (
+            <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+              <span className="text-muted font-bold">比較中:</span>
+              <span className="text-ink font-bold">{staffCompareNames.join(" vs ")}</span>
+              <Link
+                href={buildClearStaffHref(baseSp)}
+                className="text-muted hover:text-ink transition"
+              >
+                クリア
+              </Link>
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[320px] text-sm border-collapse">
+              <thead>
+                <tr className="text-[0.68rem] text-muted border-b border-line">
+                  <th className="text-left font-bold py-1.5 pr-2">名前</th>
+                  <th className="text-center font-bold py-1.5 px-1 w-10">作品</th>
+                  <th className="text-center font-bold py-1.5 px-1 w-12">平均</th>
+                  <th className="text-center font-bold py-1.5 px-1 w-12">一貫性</th>
+                  <th className="text-center font-bold py-1.5 px-1 w-12">打率</th>
+                  <th className="text-left font-bold py-1.5 pl-2 w-20">直近</th>
+                  <th className="text-center font-bold py-1.5 pl-1 w-12">比較</th>
+                </tr>
+              </thead>
+              <tbody>
+                {people.map((p) => {
+                  const conColor = consistencyColor(p.consistency);
+                  const inCompare = staffCompareNames.includes(p.name);
+                  const staffHref = buildStaffCompareHref(comparestaff, roleKey, p.name, baseSp);
+                  return (
+                    <tr
+                      key={p.name}
+                      className={`border-b border-line/60 hover:bg-paper/60 ${inCompare ? "bg-surface" : ""}`}
                     >
-                      {p.consistency != null ? p.consistency : "—"}
-                    </td>
-                    <td className="py-1.5 px-1 text-center tabular-nums text-xs font-bold text-ink">
-                      {formatBa(p.battingAverage)}
-                    </td>
-                    <td className="py-1.5 pl-2">
-                      <ScoreSparkline data={p.yearTrend} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <td className="py-1.5 pr-2">
+                        <span className="font-medium text-ink line-clamp-1 text-xs">{p.name}</span>
+                      </td>
+                      <td className="py-1.5 px-1 text-center tabular-nums text-xs text-ink-soft">
+                        {p.works}
+                      </td>
+                      <td className="py-1.5 px-1 text-center tabular-nums font-black text-accent text-xs">
+                        {Math.round(p.avgScore)}
+                      </td>
+                      <td
+                        className={`py-1.5 px-1 text-center tabular-nums font-bold text-xs ${conColor}`}
+                      >
+                        {p.consistency != null ? p.consistency : "—"}
+                      </td>
+                      <td className="py-1.5 px-1 text-center tabular-nums text-xs font-bold text-ink">
+                        {formatBa(p.battingAverage)}
+                      </td>
+                      <td className="py-1.5 pl-2">
+                        <ScoreSparkline data={p.yearTrend} />
+                      </td>
+                      <td className="py-1.5 pl-1 text-center">
+                        <Link
+                          href={staffHref}
+                          className={`text-xs font-bold px-1 py-0.5 rounded transition ${
+                            inCompare ? "text-accent" : "text-muted hover:text-ink"
+                          }`}
+                          title={inCompare ? "比較から除外" : "比較に追加"}
+                        >
+                          {inCompare ? "✓" : "+比較"}
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </section>
   );
