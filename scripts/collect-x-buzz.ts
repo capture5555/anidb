@@ -41,7 +41,10 @@ import { getAdminClient } from "../lib/supabase/admin.ts";
 import { isXaiConfigured, searchAnimeBuzz } from "../lib/adapters/xai.ts";
 import { buzzFromAnswer, hermesXSearch, isHermesConfigured } from "../lib/adapters/hermesX.ts";
 import { parsePostsFromAnswer } from "../lib/adapters/xPosts.ts";
-import { seasonOf } from "../lib/season.ts";
+import { seasonOf, formatSeason } from "../lib/season.ts";
+import { writeSnapshot } from "../lib/analytics/snapshots.ts";
+import { cleanXSummary } from "../lib/analytics/xbuzz.ts";
+import { SEASON_COMMENT_KEY } from "../lib/analytics/seasonComment.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -177,6 +180,34 @@ async function collectHermes(title: string): Promise<BuzzRow | null> {
     rawAnswer: res.answer,
     rawCitations: res.citations,
   };
+}
+
+/**
+ * 今期アニメ全体の「所感」コメントを x_search で1クエリ生成し、スナップショットへ保存する。
+ * メイン分析画面に短いリード文として表示する用途。失敗は呼び出し側で握りつぶす。
+ */
+async function generateSeasonComment(
+  year: number,
+  season: Parameters<typeof formatSeason>[1],
+): Promise<void> {
+  const label = formatSeason(year, season);
+  const query =
+    `${label}に放送中のテレビアニメ全体について、直近1週間でX(Twitter)上で特に話題・` +
+    `高評価の作品や、盛り上がっているジャンル・全体の傾向を検索してください。` +
+    `アニメ業界の関係者向けに、要点を3〜4文・約200字以内の日本語で簡潔にまとめてください。` +
+    `箇条書き・見出し・URL・脚注は使わず、地の文だけで述べてください。`;
+  const res = await hermesXSearch(query);
+  const text = cleanXSummary(res?.answer ?? null);
+  if (!text) {
+    console.log("[collect-x-buzz] 所感: 生成結果が空のためスキップ");
+    return;
+  }
+  await writeSnapshot(SEASON_COMMENT_KEY, {
+    text: text.slice(0, 1000),
+    generatedAt: new Date().toISOString(),
+    label,
+  });
+  console.log(`[collect-x-buzz] 所感を保存しました (${label}, ${text.length}字)`);
 }
 
 /** Mode A: xAI(Grok) の searchAnimeBuzz で作品のバズを導出する。失敗時は null。 */
@@ -344,6 +375,12 @@ async function main() {
       await collectEpisodeBuzz(db);
     } catch (e) {
       console.error("[collect-x-buzz] 話数別パスで例外:", e);
+    }
+    // 今期全体の「所感」コメント（x_search を1クエリだけ使う。メイン分析画面用）。
+    try {
+      await generateSeasonComment(year, season);
+    } catch (e) {
+      console.error("[collect-x-buzz] 所感生成で例外:", e);
     }
   }
 

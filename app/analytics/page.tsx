@@ -55,6 +55,7 @@ import {
   type EpisodeBuzzLeader,
   type XTopicLeader,
 } from "@/lib/analytics/xbuzz";
+import { getSeasonComment } from "@/lib/analytics/seasonComment";
 import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight, compareInsight, compareStaffInsight, toPercentileRank } from "@/lib/analytics/insights";
 import {
   getTimeslotHeatmap,
@@ -116,12 +117,28 @@ export default async function AnalyticsPage({
               ? "buzz"
               : "viewing";
   const basis = sp.basis === "annict" ? "annict" : "jikkyo";
+  // 今期の所感（Grok x_search 由来・cron生成のスナップショット）。未生成なら非表示。
+  const seasonComment = await getSeasonComment().catch(() => null);
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
       <div className="flex items-baseline gap-3 pt-8 mb-3">
         <h1 className="text-xl sm:text-2xl font-black text-ink">アニメ分析</h1>
       </div>
+
+      {seasonComment && (
+        <div className="card p-4 sm:p-5 mb-5 border-l-4 border-l-accent">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-[0.7rem] font-black text-accent">AIの所感</span>
+            <span className="text-[0.66rem] text-muted">
+              Grok・X / {seasonComment.label}
+            </span>
+          </div>
+          <p className="text-[0.9rem] leading-[1.8] text-ink-soft whitespace-pre-wrap">
+            {seasonComment.text}
+          </p>
+        </div>
+      )}
 
       {/* タブ */}
       <nav className="border-b-2 border-line mb-6 overflow-x-auto">
