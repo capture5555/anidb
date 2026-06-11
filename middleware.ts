@@ -23,7 +23,9 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
+  // 静的アセット・画像最適化・代表的なメタファイルのみ除外。
+  // ※ .json は除外しない（_next/data 等の保護ページデータがゲートを迂回しないように）。
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|xml|webmanifest|json)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|xml|webmanifest)$).*)",
   ],
 };

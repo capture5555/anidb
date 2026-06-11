@@ -14,11 +14,14 @@ export const GATE_COOKIE = "site_gate";
 /** セッション有効期間。 */
 export const GATE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30日
 
-/** ゲートを通さない公開パス。 */
-const PUBLIC_PREFIXES = ["/gate", "/api/gate", "/cal/"];
-
+/**
+ * ゲートを通さない公開パス。
+ * /gate・/api/gate は完全一致（/gateway 等を誤って公開しないため）。/cal/ は前方一致（ICS配信）。
+ */
 export function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
+  if (pathname === "/gate" || pathname === "/api/gate") return true;
+  if (pathname.startsWith("/cal/")) return true;
+  return false;
 }
 
 function gatePassword(): string {
@@ -87,6 +90,9 @@ export async function verifyToken(token: string | undefined): Promise<boolean> {
 /** redirect 先を内部パスだけに制限（オープンリダイレクト防止）。 */
 export function safeNextPath(next: string | null | undefined): string {
   if (!next) return "/";
-  if (!next.startsWith("/") || next.startsWith("//")) return "/";
+  // 単一スラッシュ始まりの内部パスのみ許可。"//" や バックスラッシュ("/\\…")は
+  // 一部ブラウザで外部URL扱いになるため拒否。制御文字も拒否。
+  if (!next.startsWith("/")) return "/";
+  if (next.startsWith("//") || next.includes("\\") || /[\x00-\x1f]/.test(next)) return "/";
   return next;
 }

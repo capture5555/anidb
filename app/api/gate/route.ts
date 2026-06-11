@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
   const res = NextResponse.redirect(`${origin}${next}`, { status: 303 });
   res.cookies.set(GATE_COOKIE, token, {
     httpOnly: true,
-    secure: true,
+    // localhost(http)では Secure Cookie が保存されず締め出されるため本番のみ Secure。
+    secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     maxAge: Math.floor(GATE_TTL_MS / 1000),
