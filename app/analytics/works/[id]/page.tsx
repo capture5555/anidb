@@ -10,6 +10,8 @@ import { getCohortReactionAverage } from "@/lib/analytics/reactionFingerprint";
 import { getWorkCohortPosition } from "@/lib/analytics/scorecard";
 import { WorkAnalysisSections } from "@/components/charts/WorkAnalysisSections";
 import { CohortPositionPanel } from "@/components/charts/CohortPositionPanel";
+import { XBuzzSection } from "@/components/charts/XBuzzSection";
+import { getWorkXBuzz, getWorkXPosts } from "@/lib/analytics/xbuzz";
 import { WorkCover } from "@/components/WorkCover";
 
 export async function generateMetadata({
@@ -29,13 +31,17 @@ export default async function WorkAnalyticsPage({
 }) {
   const { id } = await params;
   // 3本の重い取得を並列化（互いに依存しない）。各々のフォールバックは従来どおり。
-  const [analysis, cohort, cohortReaction] = await Promise.all([
+  const [analysis, cohort, cohortReaction, xbuzz, xposts] = await Promise.all([
     getWorkAnalysis(id).catch(() => null),
     getWorkCohortPosition(id).catch(() => null),
     // クール平均リアクション（レーダー比較用）。取得失敗時は undefined
     getCohortReactionAverage()
       .then((r) => r.shares)
       .catch(() => undefined),
+    // X(Twitter) バズ（Grok x_search 分析）。未蓄積・失敗は null
+    getWorkXBuzz(id).catch(() => null),
+    // X 実ポストのサンプル。未蓄積・失敗は []
+    getWorkXPosts(id).catch(() => []),
   ]);
   if (!analysis) notFound();
 
@@ -75,6 +81,9 @@ export default async function WorkAnalyticsPage({
       <div className="space-y-5 py-5">
         {cohort && <CohortPositionPanel position={cohort} />}
         <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
+
+        {/* Xの反応（X Premium・x_search）。X データが無ければ自動で非表示 */}
+        <XBuzzSection buzz={xbuzz} posts={xposts} />
 
         <p className="text-xs text-muted leading-relaxed">
           ※ データソース: ニコニコ実況 過去ログAPI・Annict。各サービスの利用者を母数とした参考値です。

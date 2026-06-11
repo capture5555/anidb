@@ -45,6 +45,12 @@ import {
   type CollectionJob,
   type CollectionGap,
 } from "@/lib/analytics/collectionHealth";
+import {
+  getCohortXBuzz,
+  getXBuzzVsJikkyo,
+  type CohortXBuzz,
+  type XBuzzVsJikkyo,
+} from "@/lib/analytics/xbuzz";
 import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight, compareInsight, compareStaffInsight, toPercentileRank } from "@/lib/analytics/insights";
 import {
   getTimeslotHeatmap,
@@ -102,7 +108,9 @@ export default async function AnalyticsPage({
           ? "people"
           : sp.view === "collection"
             ? "collection"
-            : "viewing";
+            : sp.view === "buzz"
+              ? "buzz"
+              : "viewing";
   const basis = sp.basis === "annict" ? "annict" : "jikkyo";
 
   return (
@@ -118,6 +126,7 @@ export default async function AnalyticsPage({
             { key: "viewing", href: "/analytics", label: "視聴分析" },
             { key: "scorecard", href: "/analytics?view=scorecard", label: "クール診断" },
             { key: "people", href: "/analytics?view=people", label: "人材" },
+            { key: "buzz", href: "/analytics?view=buzz", label: "Xバズ" },
             { key: "industry", href: "/analytics?view=industry", label: "業界データ" },
             { key: "collection", href: "/analytics?view=collection", label: "収集状況" },
           ].map((t) => (
@@ -143,6 +152,8 @@ export default async function AnalyticsPage({
         <PeopleSection compare={sp.compare} comparestaff={sp.comparestaff} />
       ) : view === "collection" ? (
         <CollectionSection />
+      ) : view === "buzz" ? (
+        <BuzzSection />
       ) : (
         <IndustrySection period={sp.period} />
       )}
@@ -525,6 +536,208 @@ function RetentionMiniCard({
         </span>
       </div>
     </Link>
+  );
+}
+
+/* ================================================================ Xバズ */
+
+/** sentiment を emerald/amber/rose のチップにマップ（Xバズ用）。未知/欠落は非表示。 */
+function BuzzSentimentChip({ sentiment }: { sentiment: string | null }) {
+  if (!sentiment) return null;
+  const s = sentiment.toLowerCase();
+  const config: { cls: string; label: string } | null =
+    s === "positive"
+      ? { cls: "bg-emerald-100 text-emerald-700", label: "ポジティブ" }
+      : s === "mixed"
+        ? { cls: "bg-amber-100 text-amber-700", label: "賛否両論" }
+        : s === "negative"
+          ? { cls: "bg-rose-100 text-rose-700", label: "ネガティブ" }
+          : null;
+  if (!config) return null;
+  return (
+    <span
+      className={`inline-block text-[0.66rem] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${config.cls}`}
+    >
+      {config.label}
+    </span>
+  );
+}
+
+/** volume 0-5 を5セグメントのゲージで表現（Xバズ用）。 */
+function BuzzVolumeGauge({ volume }: { volume: number }) {
+  const filled = Math.max(0, Math.min(5, Math.round(volume)));
+  return (
+    <div className="flex items-center gap-0.5" aria-label={`盛り上がり ${filled}/5`}>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <span
+          key={i}
+          className={`h-2.5 w-4 rounded-[2px] ${i < filled ? "bg-accent" : "bg-paper"}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+async function BuzzSection() {
+  const [cohort, vsJikkyo] = await Promise.all([
+    getCohortXBuzz(20).catch((): CohortXBuzz[] => []),
+    getXBuzzVsJikkyo(30).catch((): XBuzzVsJikkyo[] => []),
+  ]);
+
+  return (
+    <div className="space-y-5">
+      {/* クール内Xバズランキング */}
+      <section className="card p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+          <h2 className="section-title text-lg">クール内Xバズランキング</h2>
+          {cohort.length > 0 && (
+            <CsvExportButton
+              filename="Xバズランキング"
+              headers={["順位", "作品", "盛り上がり", "センチメント"]}
+              rows={cohort.map((c, i) => [i + 1, c.title, c.volume, c.sentiment ?? ""])}
+            />
+          )}
+        </div>
+        <p className="text-xs text-muted mb-4">
+          今期放送中作品の最新Xバズ（Grok x_search 分析の volume 0〜5）を降順に表示。母数はXの投稿で、ニコニコ実況とは異なります。
+        </p>
+        {cohort.length === 0 ? (
+          <p className="text-sm text-muted">
+            Xバズのデータがまだ十分に集まっていません。収集が進むと表示されます。
+          </p>
+        ) : (
+          <ol className="divide-y divide-line">
+            {cohort.map((c, i) => (
+              <li key={c.workId} className="flex items-center gap-3 py-2.5">
+                <span
+                  className={`w-5 text-right font-black tabular-nums shrink-0 ${
+                    i < 3 ? "text-accent" : "text-muted"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <Link href={`/analytics/works/${c.workId}`} className="shrink-0">
+                  <WorkCover id={c.workId} title={c.title} url={c.posterUrl} className="w-9 h-12 rounded-md" />
+                </Link>
+                <Link
+                  href={`/analytics/works/${c.workId}`}
+                  className="flex-1 min-w-0 text-sm font-bold text-ink hover:text-primary transition truncate"
+                >
+                  {c.title}
+                </Link>
+                <BuzzVolumeGauge volume={c.volume} />
+                <span className="text-xs font-bold text-ink-soft tabular-nums shrink-0 w-7 text-right">
+                  {Math.max(0, Math.min(5, Math.round(c.volume)))}/5
+                </span>
+                <BuzzSentimentChip sentiment={c.sentiment} />
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      {/* ニコ実況 × X 相関 */}
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">ニコ実況 × X 相関</h2>
+        <p className="text-xs text-muted mb-4">
+          横＝ニコニコ実況のコメント総数（平方根スケール）、縦＝最新Xバズ volume（0〜5）。
+          実況とXは母数（利用者層）が異なるため、両軸で位置づけを見ると「実況で熱いがXは静か」「Xで話題だが実況は静か（隠れ人気）」といった偏りが分かります。
+        </p>
+        {vsJikkyo.length === 0 ? (
+          <p className="text-sm text-muted">
+            相関に必要なデータがまだ十分に集まっていません。収集が進むと表示されます。
+          </p>
+        ) : (
+          <BuzzJikkyoScatter points={vsJikkyo} />
+        )}
+      </section>
+
+      <p className="text-xs text-muted leading-relaxed">
+        ※ データは3hごとに収集・数日かけて蓄積。Grok の x_search 分析に基づく参考値であり、テレビ視聴率ではありません。
+      </p>
+    </div>
+  );
+}
+
+/** ニコ実況コメント数(x, sqrtスケール) × Xバズ volume(y) の散布図（インラインSVG）。 */
+function BuzzJikkyoScatter({ points }: { points: XBuzzVsJikkyo[] }) {
+  const W = 560;
+  const H = 320;
+  const PAD = { top: 16, right: 16, bottom: 36, left: 40 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+
+  const maxComments = Math.max(1, ...points.map((p) => p.jikkyoComments));
+  const sqrtMax = Math.sqrt(maxComments);
+  const px = (comments: number) => PAD.left + (Math.sqrt(Math.max(0, comments)) / sqrtMax) * innerW;
+  const py = (vol: number) => PAD.top + (1 - Math.max(0, Math.min(5, vol)) / 5) * innerH;
+
+  const midX = PAD.left + innerW / 2;
+  const midY = PAD.top + innerH / 2;
+
+  return (
+    <div className="overflow-x-auto">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full min-w-[480px]"
+        role="img"
+        aria-label="ニコ実況コメント数とXバズの散布図"
+      >
+        {/* 軸 */}
+        <line x1={PAD.left} x2={PAD.left} y1={PAD.top} y2={H - PAD.bottom} stroke="#e8eaef" />
+        <line
+          x1={PAD.left}
+          x2={W - PAD.right}
+          y1={H - PAD.bottom}
+          y2={H - PAD.bottom}
+          stroke="#e8eaef"
+        />
+        {/* 中央十字（四象限の境界） */}
+        <line x1={midX} x2={midX} y1={PAD.top} y2={H - PAD.bottom} stroke="#f0f1f4" strokeDasharray="3 3" />
+        <line x1={PAD.left} x2={W - PAD.right} y1={midY} y2={midY} stroke="#f0f1f4" strokeDasharray="3 3" />
+
+        {/* 象限注記 */}
+        <text x={W - PAD.right - 4} y={H - PAD.bottom - 8} textAnchor="end" fontSize="9" fill="#a0a6b0">
+          右下=実況で熱いがXは静か
+        </text>
+        <text x={PAD.left + 4} y={PAD.top + 12} textAnchor="start" fontSize="9" fill="#a0a6b0">
+          左上=Xで話題だが実況は静か（隠れ人気）
+        </text>
+
+        {/* 軸ラベル */}
+        <text x={PAD.left + innerW / 2} y={H - 6} textAnchor="middle" fontSize="10" fill="#8a909c">
+          ニコ実況コメント数（√スケール）→
+        </text>
+
+        {/* 点 */}
+        {points.map((p) => (
+          <circle
+            key={p.workId}
+            cx={px(p.jikkyoComments).toFixed(1)}
+            cy={py(p.xVolume).toFixed(1)}
+            r="4.5"
+            fill="#2f6fdb"
+            fillOpacity="0.65"
+          >
+            <title>{`${p.title} ─ 実況${p.jikkyoComments.toLocaleString()}コメ / Xバズ${Math.round(p.xVolume)}/5`}</title>
+          </circle>
+        ))}
+
+        {/* y軸目盛 */}
+        {[0, 1, 2, 3, 4, 5].map((v) => (
+          <text
+            key={v}
+            x={PAD.left - 6}
+            y={py(v) + 3}
+            textAnchor="end"
+            fontSize="9"
+            fill="#8a909c"
+          >
+            {v}
+          </text>
+        ))}
+      </svg>
+    </div>
   );
 }
 
