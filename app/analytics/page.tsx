@@ -68,7 +68,16 @@ import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { HotProgramsPanel } from "@/components/charts/HotProgramsPanel";
 import { SectionNote } from "@/components/charts/WorkAnalysisSections";
-import { hotProgramsComment } from "@/lib/analytics/sectionComments";
+import {
+  hotProgramsComment,
+  retentionSeriesComment,
+  peakMomentsComment,
+  reactionRankingComment,
+  cohortXBuzzComment,
+  xBuzzVsJikkyoComment,
+  epLeadersComment,
+  topicsComment,
+} from "@/lib/analytics/sectionComments";
 import { QuadrantScatter } from "@/components/charts/QuadrantScatter";
 import { SEASON_LABELS, SEASON_ORDER } from "@/lib/season";
 import { formatPopularity, formatAirShort } from "@/lib/format";
@@ -240,6 +249,7 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
             </>
           )}
         </p>
+        <SectionNote text={retentionSeriesComment(retention.series)} />
         <RetentionChart series={retention.series} />
       </section>
 
@@ -283,6 +293,7 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
           <p className="text-xs text-muted mb-4">
             「1分間に流れたコメント数」の最大値が大きかった瞬間。その時に何が流れたかも見られます。
           </p>
+          <SectionNote text={peakMomentsComment(peaks)} />
           <ol className="divide-y divide-line">
             {peaks.map((p, i) => (
               <li key={p.programId} className="flex items-center gap-3 py-2.5">
@@ -323,6 +334,7 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
           <p className="text-xs text-muted mb-4">
             実況コメントの内容を分類し、コメント全体に占める割合でランキング。母数は各作品の実況コメント総数（1,000コメント以上の作品が対象）。
           </p>
+          <SectionNote text={reactionRankingComment(ratios)} />
           <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
             <RatioColumn works={ratios} category="laugh" title="一番笑えるアニメ" color="#f5a623" label="笑い率" />
             <RatioColumn works={ratios} category="cry" title="一番泣けるアニメ" color="#2f6fdb" label="感動率" />
@@ -751,6 +763,7 @@ async function BuzzSection() {
         <p className="text-xs text-muted mb-4">
           今期放送中作品の最新Xバズ（Grok x_search 分析の volume 0〜5）を降順に表示。母数はXの投稿で、ニコニコ実況とは異なります。
         </p>
+        <SectionNote text={cohortXBuzzComment(cohort)} />
         {cohort.length === 0 ? (
           <p className="text-sm text-muted">
             Xバズのデータがまだ十分に集まっていません。収集が進むと表示されます。
@@ -806,6 +819,7 @@ async function BuzzSection() {
           <p className="text-xs text-muted mb-4">
             今期作品の「話数ごと」のXバズを横断で並べたもの。いまどの作品のどの話が刺さっているかが分かります。
           </p>
+          <SectionNote text={epLeadersComment(epLeaders)} />
           <ol className="divide-y divide-line">
             {epLeaders.map((e, i) => (
               <li key={`${e.workId}-${e.episodeId ?? i}`} className="flex items-center gap-3 py-2.5">
@@ -856,6 +870,7 @@ async function BuzzSection() {
           <p className="text-xs text-muted mb-4">
             今期作品のXバズ分析で複数作品にまたがって挙がっているキーワード。クール全体の関心の地図です。
           </p>
+          <SectionNote text={topicsComment(topics)} />
           <TopicCloud topics={topics} />
         </section>
       )}
@@ -867,6 +882,7 @@ async function BuzzSection() {
           横＝ニコニコ実況のコメント総数（平方根スケール）、縦＝最新Xバズ volume（0〜5）。
           実況とXは母数（利用者層）が異なるため、両軸で位置づけを見ると「実況で熱いがXは静か」「Xで話題だが実況は静か（隠れ人気）」といった偏りが分かります。
         </p>
+        <SectionNote text={xBuzzVsJikkyoComment(vsJikkyo)} />
         {vsJikkyo.length === 0 ? (
           <p className="text-sm text-muted">
             相関に必要なデータがまだ十分に集まっていません。収集が進むと表示されます。
