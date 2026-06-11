@@ -2,6 +2,11 @@ import type { WorkAnalysis } from "@/lib/analytics/viewing";
 import type { ReactionCategory } from "@/lib/analytics/commentAnalysis";
 import { buildEpisodeCommentary, type EpisodeNote } from "@/lib/analytics/episodeCommentary";
 import { buildWorkReactions, buildWorkMoments } from "@/lib/analytics/workReactions";
+import {
+  reactionSectionComment,
+  retentionSectionComment,
+  heatSectionComment,
+} from "@/lib/analytics/sectionComments";
 import { RetentionChart, type RetentionSeriesInput } from "./RetentionChart";
 import { EpisodeTrendChart, EpisodeHeatSelector } from "./WorkAnalysisPanel";
 import {
@@ -26,6 +31,9 @@ export function WorkAnalysisSections({
   const commentary = buildEpisodeCommentary(analysis);
   const reactions = buildWorkReactions(analysis);
   const moments = buildWorkMoments(analysis, 5);
+  const reactionNote = reactionSectionComment(reactions);
+  const retentionNote = retentionSectionComment(analysis);
+  const heatNote = heatSectionComment(analysis);
 
   return (
     <>
@@ -48,6 +56,7 @@ export function WorkAnalysisSections({
           <p className="text-xs text-muted mb-4">
             実況コメントの内容を分類し、この作品がどんな反応で盛り上がるかを構成比で示します。
           </p>
+          <SectionNote text={reactionNote} />
           <ReactionCompositionBar breakdown={reactions} />
           {cohortReaction && (
             <div className="mt-6 border-t border-line pt-4">
@@ -87,6 +96,7 @@ export function WorkAnalysisSections({
             破線＝各話の満足度（Annictユーザーの「良い」評価率の実数%）。
             「人は減ったが残った人の満足度は高い」といったパターンが見えます（テレビ視聴率ではありません）。
           </p>
+          <SectionNote text={retentionNote} />
           <RetentionChart series={retentionSeries} linkLegend={false} />
         </section>
       )}
@@ -98,10 +108,22 @@ export function WorkAnalysisSections({
           <p className="text-xs text-muted mb-4">
             話数を選ぶと、その回の分単位コメント数とリアクション内訳が見られます。▲はピーク。
           </p>
+          <SectionNote text={heatNote} />
           <EpisodeHeatSelector episodes={analysis.episodes} />
         </section>
       )}
     </>
+  );
+}
+
+/** セクション冒頭の「ひとことメモ」。データから機械生成した短い所感。null なら非表示。 */
+export function SectionNote({ text }: { text: string | null }) {
+  if (!text) return null;
+  return (
+    <p className="mb-4 text-xs leading-relaxed text-ink-soft bg-accent/[0.06] border-l-2 border-accent rounded-r px-3 py-2">
+      <span className="font-bold text-accent mr-1.5">メモ</span>
+      {text}
+    </p>
   );
 }
 
