@@ -40,6 +40,7 @@ import {
   getPeakMomentsLive,
   getRetentionSeriesLive,
   getWorkAnalysisLive,
+  getHotProgramsLive,
 } from "../lib/analytics/viewing.ts";
 import { getCohortXBuzzForSnapshot } from "../lib/analytics/xbuzz.ts";
 import { getAdminClient } from "../lib/supabase/admin.ts";
@@ -67,6 +68,7 @@ const UNITS: Unit[] = [
   { key: "reaction_ratios", compute: () => getReactionRatiosLive(1000), count: (r) => r?.length ?? 0 },
   { key: "jikkyo_retention", compute: () => getJikkyoRetentionSeriesLive(8), count: (r) => r?.series?.length ?? 0 },
   { key: "peak_moments", compute: () => getPeakMomentsLive(10), count: (r) => r?.length ?? 0 },
+  { key: "hot_programs", compute: () => getHotProgramsLive(6, 14), count: (r) => r?.length ?? 0 },
   { key: "annict_retention", compute: () => getRetentionSeriesLive(8), count: (r) => r?.series?.length ?? 0 },
   { key: "timeslot_heatmap", compute: getTimeslotHeatmapUncached, count: (r) => r?.cells?.length ?? 0 },
   { key: "x_cohort_buzz", compute: () => getCohortXBuzzForSnapshot(20), count: (r) => r?.length ?? 0 },

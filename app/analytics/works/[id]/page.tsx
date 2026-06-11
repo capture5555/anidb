@@ -79,6 +79,18 @@ export default async function WorkAnalyticsPage({
       </header>
 
       <div className="space-y-5 py-5">
+        {/* AIの所感（既存の Grok x_search 「作品の声」を短く再利用）。無ければ非表示。 */}
+        {xbuzz?.summary && (
+          <div className="card p-4 sm:p-5 border-l-4 border-l-accent">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[0.7rem] font-black text-accent">AIの所感</span>
+              <span className="text-[0.66rem] text-muted">Grok・X</span>
+            </div>
+            <p className="text-[0.9rem] leading-[1.8] text-ink-soft whitespace-pre-wrap">
+              {xbuzz.summary.length > 200 ? `${xbuzz.summary.slice(0, 200)}…` : xbuzz.summary}
+            </p>
+          </div>
+        )}
         {cohort && <CohortPositionPanel position={cohort} />}
         <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
 

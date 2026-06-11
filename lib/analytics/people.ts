@@ -496,3 +496,672 @@ export function getStaffScorecards(opts?: {
   if (!isDefault) return getStaffScorecardsLive(opts);
   return fromSnapshotOrLive("staff_scorecards", () => getStaffScorecardsLive(opts));
 }
+
+/* ================================================================
+   個人詳細（単一人物のドリルダウン）
+   ================================================================ */
+
+/** season_year+season_name の新しさで比較するためのソートキー */
+const SEASON_RANK_DETAIL: Record<string, number> = {
+  winter: 0,
+  spring: 1,
+  summer: 2,
+  autumn: 3,
+};
+
+function sortSeasonDesc(
+  a: { seasonYear: number | null; seasonName: string | null },
+  b: { seasonYear: number | null; seasonName: string | null },
+): number {
+  const ay = a.seasonYear ?? -Infinity;
+  const by = b.seasonYear ?? -Infinity;
+  if (ay !== by) return by - ay;
+  const ar = a.seasonName ? (SEASON_RANK_DETAIL[a.seasonName] ?? -1) : -1;
+  const br = b.seasonName ? (SEASON_RANK_DETAIL[b.seasonName] ?? -1) : -1;
+  return br - ar;
+}
+
+/** 詳細ページ用の参加作品1件（共通） */
+export interface PersonWork {
+  workId: string;
+  title: string;
+  posterUrl: string | null;
+  seasonYear: number | null;
+  seasonName: string | null;
+  score: number | null;
+  popularity: number | null;
+  /** 声優: 役名、スタッフ: ロール文字列 */
+  roleOrCharacter: string | null;
+  /** 声優のみ: 主演かどうか（sort <= 2） */
+  isLead?: boolean;
+}
+
+/** 年別・打率を含む推移エントリ */
+export interface PersonYearStat {
+  year: number;
+  avgScore: number;
+  works: number;
+  battingAverage: number;
+}
+
+/** 共演・協業の多い相手 */
+export interface PersonCoWork {
+  name: string;
+  /** 共通作品数 */
+  count: number;
+  /** 個人ページへのリンク用パス（va or staff） */
+  type: "va" | "staff";
+}
+
+/** 声優詳細 */
+export interface VoiceActorDetail {
+  name: string;
+  worksCount: number;
+  scoredWorks: number;
+  avgScore: number;
+  leadAvgScore: number | null;
+  battingAverage: number;
+  momentum: number | null;
+  works: PersonWork[];
+  yearStats: PersonYearStat[];
+  highlights: PersonWork[];
+  coActors: PersonCoWork[];
+  coStaff: PersonCoWork[];
+}
+
+/** スタッフ詳細 */
+export interface StaffDetail {
+  name: string;
+  worksCount: number;
+  scoredWorks: number;
+  avgScore: number;
+  battingAverage: number;
+  roles: string[];
+  works: PersonWork[];
+  yearStats: PersonYearStat[];
+  highlights: PersonWork[];
+  coActors: PersonCoWork[];
+  coStaff: PersonCoWork[];
+}
+
+/** 詳細ページ用の拡張 works 行 */
+interface DetailWorkRowFull {
+  id: string;
+  title: string;
+  poster_url: string | null;
+  key_visual_url: string | null;
+  season_year: number | null;
+  season_name: string | null;
+  anilist_score: number | null;
+  mal_score: number | null;
+  popularity: number | null;
+}
+
+interface DetailCastRow {
+  person_name: string;
+  work_id: string;
+  sort: number | null;
+  character_name: string | null;
+  works: DetailWorkRowFull;
+}
+
+interface DetailStaffRowFull {
+  person_name: string;
+  work_id: string;
+  role: string;
+  works: DetailWorkRowFull;
+}
+
+const SELECT_DETAIL_WORK =
+  "id, title, poster_url, key_visual_url, season_year, season_name, anilist_score, mal_score, popularity";
+
+function resolveDetailScore(w: DetailWorkRowFull): number | null {
+  if (w.anilist_score != null) return w.anilist_score;
+  if (w.mal_score != null) return Math.round(Number(w.mal_score) * 10);
+  return null;
+}
+
+/** クール別の全作品スコア中央値を計算（打率の分母）。
+ *  seasonKeys が空なら空 Map を返す（DB を叩かない）。 */
+async function buildSeasonMedianMap(
+  db: ReturnType<typeof getAdminClient>,
+  seasonKeys: Set<string>,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (seasonKeys.size === 0) return out;
+  // シーズンごとに独立して取得・集計する。1シーズンの取得が失敗しても、
+  // 既に計算できた他シーズンの中央値は捨てない（従来は out.clear() で全消ししていた）。
+  for (const key of seasonKeys) {
+    const [yearStr, seasonName] = key.split("|");
+    const scores: number[] = [];
+    try {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await db
+          .from("works")
+          .select("id, anilist_score, mal_score")
+          .eq("season_year", Number(yearStr))
+          .eq("season_name", seasonName)
+          .range(from, from + 999);
+        if (error) throw error;
+        const batch = (data ?? []) as {
+          id: string;
+          anilist_score: number | null;
+          mal_score: number | null;
+        }[];
+        for (const w of batch) {
+          const sc =
+            w.anilist_score ?? (w.mal_score != null ? Math.round(Number(w.mal_score) * 10) : null);
+          if (sc != null) scores.push(sc);
+        }
+        if (!data || data.length < 1000) break;
+      }
+      if (scores.length > 0) out.set(key, median(scores));
+    } catch {
+      // このシーズンの中央値が取れなくても他シーズンは続行（打率は部分的に算出）。
+    }
+  }
+  return out;
+}
+
+/** 配列を size 件ずつに分割する。 */
+function chunkIds<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/**
+ * 共起カウント: work_id 群を100件ずつ chunk しつつ makeQuery を実行し、
+ * (person_name, work_id) で重複排除して person_name ごとの作品数を数える。
+ *
+ * work_id を丸ごと .in() に渡すと、作品数の多い人物で IN リストが巨大化して
+ * URL 長超過 → 取りこぼし（しかも catch で握りつぶされ共演者が空）になるため、必ず chunk する。
+ * 1 chunk 内でも結果が1000行を超え得るので range でページングする。
+ */
+async function countCoOccurrence(
+  workIds: string[],
+  makeQuery: (
+    ids: string[],
+    from: number,
+  ) => PromiseLike<{ data: { person_name: string; work_id: string }[] | null; error: unknown }>,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const ids of chunkIds(workIds, 100)) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await makeQuery(ids, from);
+      if (error) throw error;
+      const rows = data ?? [];
+      for (const r of rows) {
+        if (!r.person_name) continue;
+        const key = `${r.person_name}|${r.work_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        counts.set(r.person_name, (counts.get(r.person_name) ?? 0) + 1);
+      }
+      if (rows.length < 1000) break;
+    }
+  }
+  return counts;
+}
+
+/**
+ * 声優の詳細情報を返す（15分メモ化・防御的）。
+ * 見つからなければ null。DB例外も握りつぶして null。
+ */
+async function getVoiceActorDetailUncached(name: string): Promise<VoiceActorDetail | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+
+  const db = getAdminClient();
+
+  try {
+    // 1. この声優のキャスト行を全取得
+    const castRows: DetailCastRow[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db
+        .from("work_casts")
+        .select(
+          `person_name, work_id, sort, character_name, works!inner(${SELECT_DETAIL_WORK})`,
+        )
+        .eq("person_name", trimmed)
+        .range(from, from + 999);
+      if (error) throw error;
+      castRows.push(...((data ?? []) as unknown as DetailCastRow[]));
+      if (!data || data.length < 1000) break;
+    }
+    if (castRows.length === 0) return null;
+
+    // 2. work_id で重複排除（同一作品内では sort 最小値を採用）
+    const worksById = new Map<string, { work: DetailWorkRowFull; sort: number; character: string | null }>();
+    for (const row of castRows) {
+      const sort = row.sort ?? 999;
+      const existing = worksById.get(row.work_id);
+      if (!existing) {
+        worksById.set(row.work_id, { work: row.works, sort, character: row.character_name ?? null });
+      } else if (sort < existing.sort) {
+        existing.sort = sort;
+        if (row.character_name) existing.character = row.character_name;
+      }
+    }
+
+    const allEntries = [...worksById.values()];
+    const worksCount = allEntries.length;
+    const isLead = (sort: number) => sort <= 2;
+
+    // スコア付き
+    const scoredPairs: { work: DetailWorkRowFull; score: number; lead: boolean; character: string | null }[] = [];
+    for (const e of allEntries) {
+      const score = resolveDetailScore(e.work);
+      if (score != null) scoredPairs.push({ work: e.work, score, lead: isLead(e.sort), character: e.character });
+    }
+    const scoredWorks = scoredPairs.length;
+    const scores = scoredPairs.map((p) => p.score);
+    const avgScore = scores.length > 0 ? Math.round(mean(scores) * 10) / 10 : 0;
+
+    const leadScores = scoredPairs.filter((p) => p.lead).map((p) => p.score);
+    const leadAvgScore = leadScores.length > 0 ? Math.round(mean(leadScores) * 10) / 10 : null;
+
+    // モメンタム
+    const curYear = new Date().getFullYear();
+    const recentScores = scoredPairs
+      .filter((p) => p.work.season_year != null && p.work.season_year >= curYear - 1)
+      .map((p) => p.score);
+    const momentum = momentumDelta(recentScores, scores);
+
+    // 打率
+    const seasonKeys = new Set<string>();
+    for (const { work } of scoredPairs) {
+      if (work.season_year && work.season_name) seasonKeys.add(`${work.season_year}|${work.season_name}`);
+    }
+    const seasonMedianMap = await buildSeasonMedianMap(db, seasonKeys);
+    const baPairs: { score: number; seasonMedian: number }[] = [];
+    for (const { work, score } of scoredPairs) {
+      if (!work.season_year || !work.season_name) continue;
+      const med = seasonMedianMap.get(`${work.season_year}|${work.season_name}`);
+      if (med == null) continue;
+      baPairs.push({ score, seasonMedian: med });
+    }
+    const ba = baPairs.length > 0 ? battingAverage(baPairs) : NaN;
+
+    // 年別推移
+    const scoresByYear = new Map<number, number[]>();
+    for (const { work, score } of scoredPairs) {
+      if (!work.season_year) continue;
+      if (!scoresByYear.has(work.season_year)) scoresByYear.set(work.season_year, []);
+      scoresByYear.get(work.season_year)!.push(score);
+    }
+    const yearStats: PersonYearStat[] = [...scoresByYear.keys()]
+      .sort((a, b) => a - b)
+      .map((year) => {
+        const ys = scoresByYear.get(year)!;
+        // 打率（該当年のシーズン内）
+        const yBaPairs: { score: number; seasonMedian: number }[] = [];
+        for (const { work, score } of scoredPairs) {
+          if (work.season_year !== year || !work.season_name) continue;
+          const med = seasonMedianMap.get(`${work.season_year}|${work.season_name}`);
+          if (med == null) continue;
+          yBaPairs.push({ score, seasonMedian: med });
+        }
+        const yBa = yBaPairs.length > 0 ? battingAverage(yBaPairs) : 0;
+        return {
+          year,
+          avgScore: Math.round(mean(ys) * 10) / 10,
+          works: ys.length,
+          battingAverage: yBa,
+        };
+      });
+
+    // 作品一覧（新しいクール順）
+    const works: PersonWork[] = allEntries
+      .map((e) => ({
+        workId: e.work.id,
+        title: e.work.title,
+        posterUrl: e.work.poster_url ?? e.work.key_visual_url ?? null,
+        seasonYear: e.work.season_year,
+        seasonName: e.work.season_name,
+        score: resolveDetailScore(e.work),
+        popularity: e.work.popularity,
+        roleOrCharacter: e.character,
+        isLead: isLead(e.sort),
+      }))
+      .sort((a, b) => {
+        const s = sortSeasonDesc(a, b);
+        if (s !== 0) return s;
+        const as = a.score ?? -Infinity;
+        const bs = b.score ?? -Infinity;
+        return bs - as;
+      });
+
+    // ハイライト（スコア上位3 + 人気上位1 重複除去）
+    const highlightWorkIds: string[] = [
+      ...scoredPairs
+        .slice()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((p) => p.work.id),
+      ...[...allEntries]
+        .filter((e) => e.work.popularity != null)
+        .sort((a, b) => (b.work.popularity ?? 0) - (a.work.popularity ?? 0))
+        .slice(0, 1)
+        .map((e) => e.work.id),
+    ];
+    const highlightIds = new Set<string>();
+    const highlights: PersonWork[] = [];
+    for (const wid of highlightWorkIds) {
+      if (highlightIds.has(wid)) continue;
+      highlightIds.add(wid);
+      const entry = worksById.get(wid);
+      if (!entry) continue;
+      const w = entry.work;
+      highlights.push({
+        workId: w.id,
+        title: w.title,
+        posterUrl: w.poster_url ?? w.key_visual_url ?? null,
+        seasonYear: w.season_year,
+        seasonName: w.season_name,
+        score: resolveDetailScore(w),
+        popularity: w.popularity,
+        roleOrCharacter: entry.character ?? null,
+        isLead: isLead(entry.sort),
+      });
+    }
+
+    // 共演者カウント（同じ作品に出ている他の声優）。IN は chunk 必須。
+    const workIds = [...new Set(allEntries.map((e) => e.work.id))];
+    let coActorCount = new Map<string, number>();
+    try {
+      coActorCount = await countCoOccurrence(workIds, (ids, from) =>
+        db
+          .from("work_casts")
+          .select("person_name, work_id")
+          .in("work_id", ids)
+          .neq("person_name", trimmed)
+          .not("person_name", "is", null)
+          .range(from, from + 999),
+      );
+    } catch {
+      // 共演者取得失敗は握りつぶす
+    }
+    const coActors: PersonCoWork[] = [...coActorCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([n, count]) => ({ name: n, count, type: "va" as const }));
+
+    // 共演スタッフ（同じ作品の監督・シリーズ構成・キャラデザ）。IN は chunk 必須。
+    let coStaffCount = new Map<string, number>();
+    try {
+      coStaffCount = await countCoOccurrence(workIds, (ids, from) =>
+        db
+          .from("work_staff")
+          .select("person_name, work_id")
+          .in("work_id", ids)
+          .neq("person_name", trimmed)
+          .not("person_name", "is", null)
+          .neq("person_name", "")
+          .or("role.ilike.%監督%,role.ilike.%シリーズ構成%,role.ilike.%キャラクターデザイン%")
+          .range(from, from + 999),
+      );
+    } catch {
+      // 握りつぶす
+    }
+    const coStaff: PersonCoWork[] = [...coStaffCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([n, count]) => ({ name: n, count, type: "staff" as const }));
+
+    return {
+      name: trimmed,
+      worksCount,
+      scoredWorks,
+      avgScore,
+      leadAvgScore,
+      battingAverage: isNaN(ba) ? 0 : ba,
+      momentum,
+      works,
+      yearStats,
+      highlights,
+      coActors,
+      coStaff,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 声優の詳細を返す（15分メモ化・防御的）。*/
+export const getVoiceActorDetail = memoizeTTL(
+  async (name: string): Promise<VoiceActorDetail | null> => {
+    try {
+      return await getVoiceActorDetailUncached(name);
+    } catch {
+      return null;
+    }
+  },
+  (name) => `va_detail:${name}`,
+  900000,
+);
+
+/**
+ * スタッフの詳細情報を返す（15分メモ化・防御的）。
+ * 見つからなければ null。DB例外も握りつぶして null。
+ */
+async function getStaffDetailUncached(name: string): Promise<StaffDetail | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+
+  const db = getAdminClient();
+
+  try {
+    // 1. このスタッフの全ロール行を取得
+    const staffRows: DetailStaffRowFull[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db
+        .from("work_staff")
+        .select(
+          `person_name, work_id, role, works!inner(${SELECT_DETAIL_WORK})`,
+        )
+        .eq("person_name", trimmed)
+        .range(from, from + 999);
+      if (error) throw error;
+      staffRows.push(...((data ?? []) as unknown as DetailStaffRowFull[]));
+      if (!data || data.length < 1000) break;
+    }
+    if (staffRows.length === 0) return null;
+
+    // 2. work_id で重複排除（roles は蓄積）
+    const worksById = new Map<string, { work: DetailWorkRowFull; roles: Set<string> }>();
+    for (const row of staffRows) {
+      if (!worksById.has(row.work_id)) {
+        worksById.set(row.work_id, { work: row.works, roles: new Set() });
+      }
+      if (row.role) worksById.get(row.work_id)!.roles.add(row.role);
+    }
+
+    const allEntries = [...worksById.values()];
+    const worksCount = allEntries.length;
+
+    // ロール一覧（ユニーク）
+    const allRoles = new Set<string>();
+    for (const { roles } of allEntries) roles.forEach((r) => allRoles.add(r));
+    const roles = [...allRoles].sort();
+
+    // スコア付き
+    const scoredPairs: { work: DetailWorkRowFull; score: number; roles: Set<string> }[] = [];
+    for (const e of allEntries) {
+      const score = resolveDetailScore(e.work);
+      if (score != null) scoredPairs.push({ work: e.work, score, roles: e.roles });
+    }
+    const scoredWorks = scoredPairs.length;
+    const scores = scoredPairs.map((p) => p.score);
+    const avgScore = scores.length > 0 ? Math.round(mean(scores) * 10) / 10 : 0;
+
+    // 打率
+    const seasonKeys = new Set<string>();
+    for (const { work } of scoredPairs) {
+      if (work.season_year && work.season_name) seasonKeys.add(`${work.season_year}|${work.season_name}`);
+    }
+    const seasonMedianMap = await buildSeasonMedianMap(db, seasonKeys);
+    const baPairs: { score: number; seasonMedian: number }[] = [];
+    for (const { work, score } of scoredPairs) {
+      if (!work.season_year || !work.season_name) continue;
+      const med = seasonMedianMap.get(`${work.season_year}|${work.season_name}`);
+      if (med == null) continue;
+      baPairs.push({ score, seasonMedian: med });
+    }
+    const ba = baPairs.length > 0 ? battingAverage(baPairs) : NaN;
+
+    // 年別推移
+    const scoresByYear = new Map<number, number[]>();
+    for (const { work, score } of scoredPairs) {
+      if (!work.season_year) continue;
+      if (!scoresByYear.has(work.season_year)) scoresByYear.set(work.season_year, []);
+      scoresByYear.get(work.season_year)!.push(score);
+    }
+    const yearStats: PersonYearStat[] = [...scoresByYear.keys()]
+      .sort((a, b) => a - b)
+      .map((year) => {
+        const ys = scoresByYear.get(year)!;
+        const yBaPairs: { score: number; seasonMedian: number }[] = [];
+        for (const { work, score } of scoredPairs) {
+          if (work.season_year !== year || !work.season_name) continue;
+          const med = seasonMedianMap.get(`${work.season_year}|${work.season_name}`);
+          if (med == null) continue;
+          yBaPairs.push({ score, seasonMedian: med });
+        }
+        const yBa = yBaPairs.length > 0 ? battingAverage(yBaPairs) : 0;
+        return {
+          year,
+          avgScore: Math.round(mean(ys) * 10) / 10,
+          works: ys.length,
+          battingAverage: yBa,
+        };
+      });
+
+    // 作品一覧（新しいクール順）
+    const works: PersonWork[] = allEntries
+      .map((e) => ({
+        workId: e.work.id,
+        title: e.work.title,
+        posterUrl: e.work.poster_url ?? e.work.key_visual_url ?? null,
+        seasonYear: e.work.season_year,
+        seasonName: e.work.season_name,
+        score: resolveDetailScore(e.work),
+        popularity: e.work.popularity,
+        roleOrCharacter: [...e.roles].join(" / ") || null,
+        isLead: undefined,
+      }))
+      .sort((a, b) => {
+        const s = sortSeasonDesc(a, b);
+        if (s !== 0) return s;
+        const as = a.score ?? -Infinity;
+        const bs = b.score ?? -Infinity;
+        return bs - as;
+      });
+
+    // ハイライト
+    const highlightWorkIdsStaff: string[] = [
+      ...scoredPairs
+        .slice()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((p) => p.work.id),
+      ...[...allEntries]
+        .filter((e) => e.work.popularity != null)
+        .sort((a, b) => (b.work.popularity ?? 0) - (a.work.popularity ?? 0))
+        .slice(0, 1)
+        .map((e) => e.work.id),
+    ];
+    const highlightIds = new Set<string>();
+    const highlights: PersonWork[] = [];
+    for (const wid of highlightWorkIdsStaff) {
+      if (highlightIds.has(wid)) continue;
+      highlightIds.add(wid);
+      const entry = worksById.get(wid);
+      if (!entry) continue;
+      const w = entry.work;
+      highlights.push({
+        workId: w.id,
+        title: w.title,
+        posterUrl: w.poster_url ?? w.key_visual_url ?? null,
+        seasonYear: w.season_year,
+        seasonName: w.season_name,
+        score: resolveDetailScore(w),
+        popularity: w.popularity,
+        roleOrCharacter: [...entry.roles].join(" / ") || null,
+      });
+    }
+
+    // 共演声優。IN は chunk 必須。staff 本人がキャスト credit を持つ場合は自分を除外。
+    const workIds = [...new Set(allEntries.map((e) => e.work.id))];
+    let coActorCount = new Map<string, number>();
+    try {
+      coActorCount = await countCoOccurrence(workIds, (ids, from) =>
+        db
+          .from("work_casts")
+          .select("person_name, work_id")
+          .in("work_id", ids)
+          .neq("person_name", trimmed)
+          .not("person_name", "is", null)
+          .range(from, from + 999),
+      );
+    } catch {
+      // 握りつぶす
+    }
+    const coActors: PersonCoWork[] = [...coActorCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([n, count]) => ({ name: n, count, type: "va" as const }));
+
+    // 共演スタッフ。IN は chunk 必須。
+    let coStaffCount = new Map<string, number>();
+    try {
+      coStaffCount = await countCoOccurrence(workIds, (ids, from) =>
+        db
+          .from("work_staff")
+          .select("person_name, work_id")
+          .in("work_id", ids)
+          .neq("person_name", trimmed)
+          .not("person_name", "is", null)
+          .neq("person_name", "")
+          .or("role.ilike.%監督%,role.ilike.%シリーズ構成%,role.ilike.%キャラクターデザイン%")
+          .range(from, from + 999),
+      );
+    } catch {
+      // 握りつぶす
+    }
+    const coStaff: PersonCoWork[] = [...coStaffCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([n, count]) => ({ name: n, count, type: "staff" as const }));
+
+    return {
+      name: trimmed,
+      worksCount,
+      scoredWorks,
+      avgScore,
+      battingAverage: isNaN(ba) ? 0 : ba,
+      roles,
+      works,
+      yearStats,
+      highlights,
+      coActors,
+      coStaff,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** スタッフの詳細を返す（15分メモ化・防御的）。*/
+export const getStaffDetailFn = memoizeTTL(
+  async (name: string): Promise<StaffDetail | null> => {
+    try {
+      return await getStaffDetailUncached(name);
+    } catch {
+      return null;
+    }
+  },
+  (name) => `staff_detail:${name}`,
+  900000,
+);

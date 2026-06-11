@@ -105,6 +105,109 @@ function jstDateKey(iso: string): string | null {
   return `${y}-${m}-${d}`;
 }
 
+/** sentiment 文字列を日本語ラベル＋色に。日別評判の集計表示用。 */
+function sentimentLabel(s: string | null): { label: string; cls: string } | null {
+  if (!s) return null;
+  const v = s.toLowerCase();
+  if (v === "positive") return { label: "ポジティブ", cls: "text-emerald-700" };
+  if (v === "mixed") return { label: "賛否両論", cls: "text-amber-700" };
+  if (v === "negative") return { label: "ネガティブ", cls: "text-rose-700" };
+  return null;
+}
+
+/**
+ * 日別の反応を「数字」で見せる表。
+ * - 投稿数: x_searchで集めた実ポストを JST 日付ごとに集計。
+ * - バズ/評判: 作品レベルのバズ計測(trend, 3hごと)を JST 日付ごとに平均volume＋多数決sentimentで集計。
+ * 直近のある日から最大14日ぶんを新しい順に。データのある日だけ表示。
+ */
+function DailyBuzzTable({
+  posts,
+  trend,
+}: {
+  posts: XBuzzPost[];
+  trend: { capturedAt: string; volume: number; sentiment: string | null }[];
+}) {
+  // 投稿数（日別）
+  const postCount = new Map<string, number>();
+  for (const p of posts) {
+    const k = jstDateKey(p.postedAt);
+    if (k) postCount.set(k, (postCount.get(k) ?? 0) + 1);
+  }
+  // バズ計測（日別: volume平均・sentiment多数決）
+  const volSum = new Map<string, { sum: number; n: number }>();
+  const sentVotes = new Map<string, Map<string, number>>();
+  for (const t of trend) {
+    const k = jstDateKey(t.capturedAt);
+    if (!k) continue;
+    const v = volSum.get(k) ?? { sum: 0, n: 0 };
+    v.sum += t.volume;
+    v.n += 1;
+    volSum.set(k, v);
+    if (t.sentiment) {
+      const votes = sentVotes.get(k) ?? new Map<string, number>();
+      votes.set(t.sentiment, (votes.get(t.sentiment) ?? 0) + 1);
+      sentVotes.set(k, votes);
+    }
+  }
+
+  const days = new Set<string>([...postCount.keys(), ...volSum.keys()]);
+  if (days.size === 0) return null;
+  const sorted = [...days].sort().reverse().slice(0, 14); // 新しい順・最大14日
+
+  const dominantSentiment = (k: string): string | null => {
+    const votes = sentVotes.get(k);
+    if (!votes) return null;
+    let best: string | null = null;
+    let bestN = 0;
+    for (const [s, n] of votes) {
+      if (n > bestN) {
+        best = s;
+        bestN = n;
+      }
+    }
+    return best;
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[360px] text-sm border-collapse">
+        <thead>
+          <tr className="text-[0.68rem] text-muted border-b border-line">
+            <th className="text-left font-bold py-1.5 pr-3">日付(JST)</th>
+            <th className="text-right font-bold py-1.5 px-2 w-20">投稿数</th>
+            <th className="text-center font-bold py-1.5 px-2 w-16">バズ</th>
+            <th className="text-left font-bold py-1.5 pl-2 w-24">評判</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((k) => {
+            const pc = postCount.get(k) ?? 0;
+            const v = volSum.get(k);
+            const avgVol = v && v.n > 0 ? Math.round((v.sum / v.n) * 10) / 10 : null;
+            const sent = sentimentLabel(dominantSentiment(k));
+            const md = k.slice(5).replace("-", "/");
+            return (
+              <tr key={k} className="border-b border-line/60">
+                <td className="py-1.5 pr-3 tabular-nums text-xs text-ink-soft">{md}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-xs font-bold text-ink">
+                  {pc > 0 ? pc.toLocaleString() : "—"}
+                </td>
+                <td className="py-1.5 px-2 text-center tabular-nums text-xs font-bold text-accent">
+                  {avgVol != null ? `${avgVol}` : "—"}
+                </td>
+                <td className={`py-1.5 pl-2 text-xs font-bold ${sent?.cls ?? "text-muted"}`}>
+                  {sent?.label ?? "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /**
  * 直近~14日のポスト件数を日次でバケットし、インラインSVGの棒グラフにする。
  * 母数が小さいため相対傾向の目安。
@@ -363,6 +466,17 @@ export function XBuzzSection({
         <div className="mb-5">
           <h3 className="text-xs font-bold text-muted mb-2">話ごとの評価</h3>
           <EpisodeBuzzList episodes={episodes} postsByEpisode={postsByEpisode} />
+        </div>
+      )}
+
+      {/* 日別の反応（投稿数・バズ・評判を数字で） */}
+      {(posts.length > 0 || (buzz?.trend.length ?? 0) > 0) && (
+        <div className="mb-5">
+          <h3 className="text-xs font-bold text-muted mb-2">日別の反応（数字）</h3>
+          <DailyBuzzTable posts={posts} trend={buzz?.trend ?? []} />
+          <p className="text-[0.68rem] text-muted mt-1.5 leading-relaxed">
+            投稿数＝x_searchで集めた実ポストの日次件数（JST）。バズ＝その日のバズ計測の平均（0〜5）、評判＝その日の多数派センチメント。
+          </p>
         </div>
       )}
 

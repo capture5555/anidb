@@ -250,7 +250,7 @@ export interface ProgramHeat {
 }
 
 /** 盛り上がった放送回ランキング（コメント数順、直近days日以内）。チャート描画用の分単位データ込み */
-export async function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[]> {
+export async function getHotProgramsLive(limit = 6, days = 14): Promise<ProgramHeat[]> {
   const db = getAdminClient();
   const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
 
@@ -278,11 +278,13 @@ export async function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[
   }
 
   const targets = logs.filter((l) => progById.has(l.program_id)).slice(0, limit);
+  // 分単位データの読み込みは番組ごとに独立なので並列化（従来は逐次awaitで遅かった）。
+  const heats = await Promise.all(targets.map((t) => loadProgramHeat(db, t.program_id)));
   const out: ProgramHeat[] = [];
-  for (const t of targets) {
+  targets.forEach((t, i) => {
+    const heat = heats[i];
+    if (!heat) return;
     const p = progById.get(t.program_id)!;
-    const heat = await loadProgramHeat(db, t.program_id);
-    if (!heat) continue;
     const ep = p.episodes;
     const epLabel =
       ep?.number_text ?? (ep?.number != null ? `第${ep.number}話` : p.count != null ? `第${p.count}話` : null);
@@ -298,15 +300,31 @@ export async function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[
       points: heat.points,
       peaks: heat.peaks,
     });
-  }
+  });
   return out;
+}
+
+/** limit/days 単位で30分メモ化した LIVE 計算。 */
+const getHotProgramsMemo = memoizeTTL(
+  getHotProgramsLive,
+  (limit = 6, days = 14) => `hot:${limit}:${days}`,
+  30 * 60 * 1000,
+);
+
+/**
+ * 「いま熱い放送回」。ページが使うデフォルト引数(limit=6, days=14)のときだけ
+ * 事前計算スナップショット("hot_programs")を読み、無ければ LIVE フォールバック。
+ */
+export function getHotPrograms(limit = 6, days = 14): Promise<ProgramHeat[]> {
+  if (limit !== 6 || days !== 14) return getHotProgramsMemo(limit, days);
+  return fromSnapshotOrLive("hot_programs", () => getHotProgramsMemo(limit, days));
 }
 
 /** 1番組の分単位データ（heat + reactions + peaks）を読み込む */
 async function loadProgramHeat(
   db: Db,
   programId: string,
-): Promise<{ points: MinuteHeatPoint[]; peaks: PeakInfo[] } | null> {
+): Promise<{ points: MinuteHeatPoint[]; peaks: PeakInfo[]; representativeComments: RepresentativeComment[] } | null> {
   const [{ data: heat }, { data: reactions }, { data: peaks }] = await Promise.all([
     db
       .from("analytics_minute_heat")
@@ -342,9 +360,22 @@ async function loadProgramHeat(
     points.push({ minute: m, total: heatByMinute.get(m) ?? 0, reactions: reactByMinute.get(m) ?? {} });
   }
 
+  // ピーク分の代表コメント文字列（DB は string[] で保存されている）
+  // コメント数の多い分を上位3分、各分で最大5件に絞る
+  const peakRows = (peaks ?? []).filter((p) => Array.isArray(p.comments) && p.comments.length > 0);
+  const heatByMinuteForPeak = new Map(heat.map((h) => [h.minute_offset, h.comment_count]));
+  const topPeakRows = peakRows
+    .slice()
+    .sort((a, b) => (heatByMinuteForPeak.get(b.minute_offset) ?? 0) - (heatByMinuteForPeak.get(a.minute_offset) ?? 0))
+    .slice(0, 3);
+
   return {
     points,
     peaks: (peaks ?? []).map((p) => ({ minute: p.minute_offset, comments: p.comments ?? [] })),
+    representativeComments: topPeakRows.map((p) => ({
+      minuteOffset: p.minute_offset,
+      comments: (p.comments as unknown as string[]).slice(0, 5),
+    })),
   };
 }
 
@@ -553,6 +584,11 @@ export function getPeakMoments(limit = 10): Promise<PeakMoment[]> {
 
 // ---------------------------------------------------------------- 作品別分析
 
+export interface RepresentativeComment {
+  minuteOffset: number;
+  comments: string[];
+}
+
 export interface EpisodeHeat {
   programId: string;
   episodeId: string | null;
@@ -562,6 +598,10 @@ export interface EpisodeHeat {
   totalComments: number;
   points: MinuteHeatPoint[];
   peaks: PeakInfo[];
+  /** ピーク分の代表コメント（analytics_peak_comments 由来の文字列配列）。
+   *  このフィールド追加前に書かれたスナップショットには存在しないため optional。
+   *  読み手は `?? []` でフォールバックすること。 */
+  representativeComments?: RepresentativeComment[];
 }
 
 export interface WorkAnalysis {
@@ -652,6 +692,7 @@ export async function getWorkAnalysisLive(workId: string): Promise<WorkAnalysis 
         totalComments: countByProgram.get(p.id) ?? 0,
         points: heat.points,
         peaks: heat.peaks,
+        representativeComments: heat.representativeComments,
       });
     });
   }
