@@ -307,11 +307,11 @@ function PostsTimeline({ posts }: { posts: XBuzzPost[] }) {
 /* ---------------------------------------------------------------- episode buzz list */
 
 /** 1話ぶんの代表ポスト（最大n件）を小さなリンク列で出す。 */
-function EpisodePosts({ posts, max = 3 }: { posts: XBuzzPost[]; max?: number }) {
+function EpisodePosts({ posts, max = 5 }: { posts: XBuzzPost[]; max?: number }) {
   const list = posts.filter((p) => p.text && p.text.trim().length > 0).slice(0, max);
   if (list.length === 0) return null;
   return (
-    <ul className="mt-2 space-y-1">
+    <ul className="mt-1.5 space-y-1">
       {list.map((p) => (
         <li key={p.statusId} className="text-[0.72rem] text-ink-soft leading-snug">
           <a
@@ -323,7 +323,7 @@ function EpisodePosts({ posts, max = 3 }: { posts: XBuzzPost[]; max?: number }) 
             ▸
           </a>{" "}
           <span className="text-muted">
-            {p.text!.length > 64 ? `${p.text!.slice(0, 64)}…` : p.text}
+            {p.text!.length > 80 ? `${p.text!.slice(0, 80)}…` : p.text}
           </span>
         </li>
       ))}
@@ -331,9 +331,131 @@ function EpisodePosts({ posts, max = 3 }: { posts: XBuzzPost[]; max?: number }) 
   );
 }
 
+/* ---------------------------------------------------------------- episode mini bar chart */
+
+/**
+ * 1話分の実ポストを JST 日付ごとに集計し、小さなインライン棒グラフで「投稿傾向」を見せる。
+ * ポスト数が3件未満のときは棒グラフを出さず数値のみ。
+ */
+function EpisodePostsTrend({ posts }: { posts: XBuzzPost[] }) {
+  if (posts.length === 0) return null;
+
+  // JST日付ごとにカウント
+  const counts = new Map<string, number>();
+  for (const p of posts) {
+    const key = jstDateKey(p.postedAt);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  if (counts.size === 0) return null;
+
+  const total = posts.length;
+  const sortedDays = [...counts.keys()].sort();
+
+  // 件数が少ない話（3件未満 or 1日のみ）は数値のみ表示
+  if (total < 3 || sortedDays.length <= 1) {
+    const peakDay = sortedDays.reduce(
+      (best, k) => (counts.get(k)! > (counts.get(best) ?? 0) ? k : best),
+      sortedDays[0],
+    );
+    const peakLabel = peakDay ? peakDay.slice(5).replace("-", "/") : null;
+    return (
+      <p className="text-[0.68rem] text-muted mt-1.5">
+        投稿傾向: 計 <span className="font-bold text-ink-soft tabular-nums">{total}</span> 件
+        {peakLabel ? `（${peakLabel}）` : ""}
+      </p>
+    );
+  }
+
+  // 棒グラフ: 全日付を連続レンジにして表示（最大14日）
+  const lastKey = sortedDays[sortedDays.length - 1];
+  const firstKey = sortedDays[0];
+  const lastMs = Date.parse(`${lastKey}T00:00:00Z`);
+  const firstMs = Date.parse(`${firstKey}T00:00:00Z`);
+  const daySpan = Math.round((lastMs - firstMs) / (24 * 60 * 60 * 1000)) + 1;
+  const DAYS = Math.min(14, daySpan);
+
+  const buckets: { key: string; label: string; count: number }[] = [];
+  for (let i = DAYS - 1; i >= 0; i--) {
+    const ms = lastMs - i * 24 * 60 * 60 * 1000;
+    const d = new Date(ms);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    buckets.push({
+      key,
+      label: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+      count: counts.get(key) ?? 0,
+    });
+  }
+
+  const maxCount = Math.max(1, ...buckets.map((b) => b.count));
+  // ピーク日ラベル（最多投稿日）
+  const peakBucket = buckets.reduce((best, b) => (b.count > best.count ? b : best), buckets[0]);
+
+  // インライン SVG: 幅 220px 固定、高さ 36px（バー 24px + ラベル 12px）
+  const W = 220;
+  const BAR_H = 24;
+  const LABEL_H = 12;
+  const H = BAR_H + LABEL_H;
+  const slot = W / buckets.length;
+  const barW = Math.max(3, slot * 0.65);
+
+  return (
+    <div className="mt-1.5">
+      <p className="text-[0.68rem] text-muted mb-0.5">
+        投稿傾向: 計{" "}
+        <span className="font-bold text-ink-soft tabular-nums">{total}</span> 件 ·
+        ピーク {peakBucket.label}（{peakBucket.count}件）
+      </p>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full max-w-[240px]"
+        role="img"
+        aria-label={`この話のX投稿傾向: 計${total}件`}
+      >
+        {/* ベースライン */}
+        <line x1={0} x2={W} y1={BAR_H} y2={BAR_H} stroke="#e8eaef" strokeWidth={1} />
+        {buckets.map((b, i) => {
+          const h = maxCount > 0 ? (b.count / maxCount) * (BAR_H - 2) : 0;
+          const x = i * slot + (slot - barW) / 2;
+          const y = BAR_H - h;
+          const isPeak = b.count === maxCount && maxCount > 0;
+          return (
+            <g key={b.key}>
+              <rect
+                x={x}
+                y={y}
+                width={barW}
+                height={h}
+                rx={1.5}
+                fill={isPeak ? "#2f6fdb" : "#2f6fdb"}
+                fillOpacity={b.count > 0 ? (isPeak ? 0.85 : 0.45) : 0}
+              >
+                <title>{`${b.label}: ${b.count}件`}</title>
+              </rect>
+              {/* 日付ラベル: 最初・最後・ピーク日のみ */}
+              {(i === 0 || i === buckets.length - 1 || isPeak) && (
+                <text
+                  x={i * slot + slot / 2}
+                  y={H - 1}
+                  textAnchor="middle"
+                  fontSize="8"
+                  fill={isPeak ? "#2f6fdb" : "#8a909c"}
+                >
+                  {b.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 /**
  * 話数ごとの X 評価を縦に並べる。各話: 話数ラベル＋volumeゲージ＋sentiment＋topics＋
- * （あれば）その話の声サマリ＋代表ポスト。話数別に X の反応を追えるようにするのが狙い。
+ * 投稿傾向（mini棒グラフ）＋AI所感（summary）＋投稿事例（代表ポスト）。
+ * 話数別に X の反応を追えるようにするのが狙い。
  */
 function EpisodeBuzzList({
   episodes,
@@ -345,13 +467,16 @@ function EpisodeBuzzList({
   return (
     <ul className="space-y-3">
       {episodes.map((ep, i) => {
-        const sum = ep.summary; // 各話の声も全文表示
+        const sum = ep.summary;
         const eps = ep.episodeId ? (postsByEpisode.get(ep.episodeId) ?? []) : [];
+        const hasPostData = eps.length > 0;
+        const hasSamplePosts = eps.some((p) => p.text && p.text.trim().length > 0);
         return (
           <li
             key={`${ep.episodeId ?? ep.episodeLabel}-${ep.capturedAt}-${i}`}
             className="rounded-lg bg-paper/60 px-3 py-2.5"
           >
+            {/* ヘッダー: 話数ラベル + volume + sentiment */}
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="text-xs font-bold text-ink-soft tabular-nums">
                 {ep.episodeLabel}
@@ -362,17 +487,36 @@ function EpisodeBuzzList({
               </span>
               <SentimentChip sentiment={ep.sentiment} />
             </div>
+
+            {/* トピックチップ */}
             {ep.topics.length > 0 && (
               <div className="mt-1.5">
                 <TopicChips topics={ep.topics} max={6} />
               </div>
             )}
-            {sum && (
-              <p className="mt-1.5 text-[0.78rem] leading-relaxed text-ink-soft whitespace-pre-wrap">
-                {sum}
-              </p>
+
+            {/* 投稿傾向: 実ポストの日別件数ミニグラフ */}
+            {hasPostData && (
+              <EpisodePostsTrend posts={eps} />
             )}
-            <EpisodePosts posts={eps} />
+
+            {/* AI所感: Grokのsummaryを明示ラベルで表示 */}
+            {sum && (
+              <div className="mt-2 rounded-md bg-paper px-2.5 py-2">
+                <p className="text-[0.65rem] font-bold text-muted mb-1">AI所感（Grok要約）</p>
+                <p className="text-[0.78rem] leading-relaxed text-ink-soft whitespace-pre-wrap">
+                  {sum}
+                </p>
+              </div>
+            )}
+
+            {/* 投稿事例: 本文がある実ポストを最大5件 */}
+            {hasSamplePosts && (
+              <div className="mt-2">
+                <p className="text-[0.65rem] font-bold text-muted mb-0.5">投稿事例</p>
+                <EpisodePosts posts={eps} />
+              </div>
+            )}
           </li>
         );
       })}
