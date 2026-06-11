@@ -96,6 +96,7 @@ import {
   fastStartComment,
   seasonHeatmapComment,
   risersComment,
+  sequelProspectComment,
 } from "@/lib/analytics/sectionComments";
 import {
   getOverallRanking,
@@ -106,6 +107,11 @@ import {
   type GlobalGapRow,
   type GlobalGapKind,
 } from "@/lib/analytics/globalGap";
+import {
+  getSequelProspect,
+  type SequelProspectRow,
+  type SequelSignal,
+} from "@/lib/analytics/sequelProspect";
 import { QuadrantScatter } from "@/components/charts/QuadrantScatter";
 import { SEASON_LABELS, SEASON_ORDER } from "@/lib/season";
 import { formatPopularity, formatAirShort } from "@/lib/format";
@@ -2991,7 +2997,7 @@ async function IndustrySection({
   const curYear = new Date().getFullYear();
   const { filter, label, key } = parsePeriod(period, curYear);
 
-  const [volumeAll, scorecardsRaw, vas, popular, topAni, topMal, genreInsightsRaw, franchises, globalGap] = await Promise.all([
+  const [volumeAll, scorecardsRaw, vas, popular, topAni, topMal, genreInsightsRaw, franchises, globalGap, sequelProspect] = await Promise.all([
     getSeasonVolume().catch((): SeasonVolume[] => []),
     getStudioScorecards({ limit: 20 }).catch((): StudioScorecard[] => []),
     getVaRanking(filter, 24).catch((): VaStat[] => []),
@@ -3001,6 +3007,7 @@ async function IndustrySection({
     getGenreInsights().catch(() => [] as GenreInsight[]),
     getFranchiseMomentum().catch(() => [] as FranchiseGroup[]),
     getGlobalGap(30).catch((): GlobalGapRow[] => []),
+    getSequelProspect(30).catch((): SequelProspectRow[] => []),
   ]);
 
   // ---- 制作会社スコアカード ソート ----
@@ -3144,6 +3151,9 @@ async function IndustrySection({
       {globalGap.length > 0 && (
         <GlobalGapCard rows={globalGap} />
       )}
+
+      {/* 続編可能性スコア（参考） */}
+      <SequelProspectCard rows={sequelProspect} />
 
       {/* シーズン別本数推移 */}
       <Card title="シーズン別の放送本数" note="クールごとの放送本数（全期間）">
@@ -3898,6 +3908,168 @@ function GlobalGapCard({ rows }: { rows: GlobalGapRow[] }) {
       </ol>
       <p className="text-[0.68rem] text-muted mt-3 leading-relaxed">
         ※ 国内人気＝Annictウォッチャー数（日本）、海外人気＝AniList利用者数（主）・MAL登録数（副）。各サービス利用者を母数とした参考値。
+      </p>
+    </section>
+  );
+}
+
+/* ================================================================ 続編可能性スコア */
+
+/** 信号機アイコン（●） */
+function SignalDot({ signal }: { signal: SequelSignal }) {
+  const cls =
+    signal === "green"
+      ? "bg-emerald-500"
+      : signal === "yellow"
+        ? "bg-amber-400"
+        : "bg-rose-500";
+  const label =
+    signal === "green" ? "続編期待大" : signal === "yellow" ? "条件次第" : "現状は厳しい";
+  return (
+    <span
+      className={`inline-block w-3 h-3 rounded-full shrink-0 ${cls}`}
+      title={label}
+      aria-label={label}
+    />
+  );
+}
+
+/**
+ * 続編可能性スコアカード（業界データタブ・製作委員会/出版社向け参考指標）。
+ * green/yellow/red の信号機と score 降順リストを表示。
+ */
+function SequelProspectCard({ rows }: { rows: SequelProspectRow[] }) {
+  const comment = sequelProspectComment(rows);
+
+  const csvHeaders = ["順位", "作品名", "スコア", "信号機", "継続率(%)", "人気%ile", "X volume"];
+  const csvRows = rows.map((r, i) => [
+    i + 1,
+    r.title,
+    r.score,
+    r.signal === "green" ? "続編期待大" : r.signal === "yellow" ? "条件次第" : "現状は厳しい",
+    r.retentionPct ?? "",
+    r.popularityPctl ?? "",
+    r.xVolume ?? "",
+  ] as (string | number)[]);
+
+  return (
+    <section className="card p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+        <h2 className="section-title text-lg">続編可能性スコア（参考）</h2>
+        {rows.length > 0 && (
+          <CsvExportButton filename="sequel_prospect.csv" headers={csvHeaders} rows={csvRows} />
+        )}
+      </div>
+      <p className="text-xs text-muted mb-1">
+        実況残留率・AniList/MALスコア・Annictウォッチャー数・Xバズ・AniList海外人気の
+        5シグナルをコホート内パーセンタイルで正規化し加重平均したスコア(0〜100)。
+        欠測シグナルは残り重みで自動再正規化。今期の非 movie 作品が対象。
+      </p>
+      <p className="text-[0.68rem] text-muted mb-1 leading-relaxed">
+        重み: 継続力 30% ・ 質の代理(スコア) 20% ・ 人気規模 25% ・ 社会的熱量(X) 15% ・ 海外需要 10%
+      </p>
+      <p className="text-[0.68rem] text-muted mb-1 leading-relaxed">
+        信号機:
+        <span className="inline-flex items-center gap-1 mx-1">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" />
+          <span>緑(≥66): 続編期待大</span>
+        </span>
+        /
+        <span className="inline-flex items-center gap-1 mx-1">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
+          <span>黄(40〜65): 条件次第</span>
+        </span>
+        /
+        <span className="inline-flex items-center gap-1 mx-1">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-rose-500" />
+          <span>赤(&lt;40): 現状は厳しい</span>
+        </span>
+      </p>
+      <p className="text-[0.7rem] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4 leading-relaxed">
+        ⚠ BD/配信売上・グッズ売上・製作委員会の内部事情・原作者の意向などは一切含みません。
+        公開データ（視聴継続・スコア・人気・Xバズ）のみによる参考スコアです。
+        実際の続編可否はこのスコアとは無関係に決定されます。
+      </p>
+      <SectionNote text={comment} />
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted">データが集まっていません。今期データが揃うと表示されます。</p>
+      ) : (
+        <ol className="divide-y divide-line">
+          {rows.slice(0, 20).map((row, i) => (
+            <li key={row.workId} className="flex items-start gap-3 py-2.5">
+              <span
+                className={`w-6 text-center font-black tabular-nums shrink-0 mt-1 ${
+                  i < 3 ? "text-accent" : "text-muted"
+                }`}
+              >
+                {i + 1}
+              </span>
+              {/* 信号機 */}
+              <div className="shrink-0 flex items-start mt-1.5">
+                <SignalDot signal={row.signal} />
+              </div>
+              <Link href={`/analytics/works/${row.workId}`} className="shrink-0">
+                <WorkCover
+                  id={row.workId}
+                  title={row.title}
+                  url={row.posterUrl}
+                  className="w-9 h-12 rounded-md"
+                />
+              </Link>
+              <div className="min-w-0 flex-1">
+                <Link
+                  href={`/analytics/works/${row.workId}`}
+                  className="block text-sm font-bold text-ink hover:text-primary transition truncate"
+                >
+                  {row.title}
+                </Link>
+                {/* 3シグナルの細バー */}
+                <div className="mt-1 grid grid-cols-3 gap-x-2 gap-y-0.5 max-w-[260px]">
+                  {(
+                    [
+                      { label: "継続率", value: row.retentionPct, max: 100, color: "#2ebd85" },
+                      { label: "人気", value: row.popularityPctl, max: 100, color: "#2f6fdb" },
+                      { label: "X", value: row.xVolume != null ? (row.xVolume / 5) * 100 : null, max: 100, color: "#f5a623" },
+                    ] as { label: string; value: number | null; max: number; color: string }[]
+                  ).map(({ label, value, color }) => (
+                    <div key={label}>
+                      <div className="text-[0.55rem] text-muted leading-none mb-0.5">{label}</div>
+                      <div className="h-1.5 rounded-full bg-line overflow-hidden">
+                        {value != null ? (
+                          <div
+                            className="h-full rounded-full"
+                            style={{ width: `${Math.min(100, value)}%`, backgroundColor: color }}
+                          />
+                        ) : (
+                          <div className="h-full rounded-full bg-line" style={{ width: "0%" }} />
+                        )}
+                      </div>
+                      <div className="text-[0.55rem] text-muted tabular-nums mt-0.5 text-right">
+                        {label === "X"
+                          ? row.xVolume != null
+                            ? `${Math.round(row.xVolume * 10) / 10}/5`
+                            : "—"
+                          : value != null
+                            ? Math.round(value)
+                            : "—"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="shrink-0 text-right min-w-[3rem]">
+                <span className="block font-black text-accent tabular-nums text-base">
+                  {row.score.toFixed(0)}
+                </span>
+                <span className="block text-[0.62rem] text-muted">pts</span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="text-[0.68rem] text-muted mt-3 leading-relaxed">
+        ※ BD/配信売上・グッズ・委員会事情は含まない、公開データからの参考スコアです。
+        スコアはAniList/MAL・Annict・ニコニコ実況・X各サービス利用者を母数とした推定値。
       </p>
     </section>
   );

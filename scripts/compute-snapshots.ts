@@ -47,6 +47,7 @@ import { getOverallRankingUncached } from "../lib/analytics/overallRanking.ts";
 import { getGlobalGapUncached } from "../lib/analytics/globalGap.ts";
 import { getFastStartUncached } from "../lib/analytics/fastStart.ts";
 import { getRisersUncached } from "../lib/analytics/risers.ts";
+import { getSequelProspectUncached } from "../lib/analytics/sequelProspect.ts";
 import { getAdminClient } from "../lib/supabase/admin.ts";
 import { seasonOf } from "../lib/season.ts";
 
@@ -80,6 +81,7 @@ const UNITS: Unit[] = [
   { key: "global_gap", compute: () => getGlobalGapUncached(30), count: (r) => r?.length ?? 0 },
   { key: "fast_start", compute: () => getFastStartUncached(30), count: (r) => r?.length ?? 0 },
   { key: "risers", compute: () => getRisersUncached(10), count: (r) => r?.length ?? 0 },
+  { key: "sequel_prospect", compute: () => getSequelProspectUncached(30), count: (r) => r?.length ?? 0 },
 ];
 
 /** 1ユニットを計算→保存。失敗しても throw せず結果オブジェクトを返す。 */
