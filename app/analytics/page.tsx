@@ -146,11 +146,18 @@ export default async function AnalyticsPage({
 
       {seasonComment && (
         <div className="card p-4 sm:p-5 mb-5 border-l-4 border-l-accent">
-          <div className="flex items-center gap-2 mb-1.5">
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <span className="text-[0.7rem] font-black text-accent">AIの所感</span>
             <span className="text-[0.66rem] text-muted">
               Grok・X / {seasonComment.label}
+              {seasonComment.generatedAt && ` ・ ${formatAirShort(seasonComment.generatedAt)} 生成`}
             </span>
+            <Link
+              href="/analytics/ai-log"
+              className="ml-auto text-[0.66rem] font-bold text-primary hover:underline underline-offset-2 whitespace-nowrap"
+            >
+              AIコメント履歴 →
+            </Link>
           </div>
           <p className="text-[0.9rem] leading-[1.8] text-ink-soft whitespace-pre-wrap">
             {seasonComment.text}
