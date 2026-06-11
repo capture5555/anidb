@@ -13,6 +13,8 @@ import { CohortPositionPanel } from "@/components/charts/CohortPositionPanel";
 import { XBuzzSection } from "@/components/charts/XBuzzSection";
 import { getWorkXBuzz, getWorkXPosts } from "@/lib/analytics/xbuzz";
 import { WorkCover } from "@/components/WorkCover";
+import { buildEpisodeTriple } from "@/lib/analytics/episodeTriple";
+import { EpisodeTripleChart } from "@/components/charts/EpisodeTripleChart";
 
 export async function generateMetadata({
   params,
@@ -93,6 +95,24 @@ export default async function WorkAnalyticsPage({
         )}
         {cohort && <CohortPositionPanel position={cohort} />}
         <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
+
+        {/* 話数別 3面比較（実況×満足度×Xバズ）*/}
+        {(() => {
+          const tripleData = buildEpisodeTriple(analysis, xbuzz?.episodes ?? []);
+          if (!tripleData) return null;
+          return (
+            <section className="card p-5 sm:p-6">
+              <h2 className="section-title text-lg mb-1">話数別 3面比較（実況×満足度×Xバズ）</h2>
+              <p className="text-xs text-muted mb-3">
+                各話の3指標を重ねて相対比較します。
+              </p>
+              <p className="text-xs text-muted mb-4 leading-relaxed">
+                各指標は0〜100に正規化した相対比較。実況=コメント数（系列内最大=100）、満足度=Annict良い率（%）、Xバズ=volume×20。
+              </p>
+              <EpisodeTripleChart data={tripleData} />
+            </section>
+          );
+        })()}
 
         {/* Xの反応（X Premium・x_search）。X データが無ければ自動で非表示 */}
         <XBuzzSection buzz={xbuzz} posts={xposts} />
