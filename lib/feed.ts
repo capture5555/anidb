@@ -120,7 +120,8 @@ export async function buildUserFeed(userId: string): Promise<string> {
     );
   }
   events.sort((a, b) => a.startISO.localeCompare(b.startISO));
-  return buildIcs(events, { name: CALENDAR_NAME });
+  // 毎時更新なので購読クライアントにも1時間間隔の再取得を提示（尊重するクライアント向け）
+  return buildIcs(events, { name: CALENDAR_NAME, refreshIntervalHours: 1 });
 }
 
 /** seedモード用のサンプルフィード（トークン "demo"） */

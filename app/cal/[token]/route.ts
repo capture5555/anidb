@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
 
 const ICS_HEADERS = {
   "Content-Type": "text/calendar; charset=utf-8",
-  // capability URL なので共有キャッシュに乗せない
-  "Cache-Control": "private, max-age=3600",
+  // capability URL なので共有キャッシュに乗せない。
+  // データは毎時更新されるので、ブラウザ等のキャッシュは短く（5分）して鮮度を優先。
+  "Cache-Control": "private, max-age=300, must-revalidate",
 };
 
 function supabaseMode(): boolean {
