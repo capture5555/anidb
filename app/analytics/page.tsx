@@ -80,6 +80,12 @@ import {
   epLeadersComment,
   topicsComment,
   overallRankingComment,
+  vaScorecardComment,
+  staffBucketComment,
+  studioBucketComment,
+  popularRankingComment,
+  ratedRankingComment,
+  genreTrendsComment,
 } from "@/lib/analytics/sectionComments";
 import {
   getOverallRanking,
@@ -119,7 +125,26 @@ function parsePeriod(p: string | undefined, curYear: number): { filter: Filter; 
 export default async function AnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; period?: string; basis?: string; compare?: string; comparestaff?: string }>;
+  searchParams: Promise<{
+    view?: string;
+    period?: string;
+    basis?: string;
+    compare?: string;
+    comparestaff?: string;
+    // 人材タブ・声優スコアカード sort
+    vasort?: string;
+    vadir?: string;
+    // 人材タブ・スタッフ sort（接頭辞 st_ + roleKey）
+    stsort?: string;
+    stdir?: string;
+    strole?: string;
+    // 業界データタブ・制作会社スコアカード sort
+    scsort?: string;
+    scdir?: string;
+    // 業界データタブ・ジャンル動向 sort
+    gsort?: string;
+    gdir?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const view =
@@ -195,13 +220,21 @@ export default async function AnalyticsPage({
       ) : view === "scorecard" ? (
         <ScorecardSection />
       ) : view === "people" ? (
-        <PeopleSection compare={sp.compare} comparestaff={sp.comparestaff} />
+        <PeopleSection
+          compare={sp.compare}
+          comparestaff={sp.comparestaff}
+          vasort={sp.vasort}
+          vadir={sp.vadir}
+          stsort={sp.stsort}
+          stdir={sp.stdir}
+          strole={sp.strole}
+        />
       ) : view === "collection" ? (
         <CollectionSection />
       ) : view === "buzz" ? (
         <BuzzSection />
       ) : (
-        <IndustrySection period={sp.period} />
+        <IndustrySection period={sp.period} scsort={sp.scsort} scdir={sp.scdir} gsort={sp.gsort} gdir={sp.gdir} />
       )}
 
       <div className="h-16" />
@@ -1555,28 +1588,107 @@ function buildStaffCompareHref(
 }
 
 /** Base query string preserving view=people (and other params) */
-function peopleSp(compare?: string, comparestaff?: string): string {
+function peopleSp(
+  compare?: string,
+  comparestaff?: string,
+  vasort?: string,
+  vadir?: string,
+  stsort?: string,
+  stdir?: string,
+  strole?: string,
+): string {
   const p = new URLSearchParams();
   p.set("view", "people");
   if (compare) p.set("compare", compare);
   if (comparestaff) p.set("comparestaff", comparestaff);
+  if (vasort) p.set("vasort", vasort);
+  if (vadir) p.set("vadir", vadir);
+  if (stsort) p.set("stsort", stsort);
+  if (stdir) p.set("stdir", stdir);
+  if (strole) p.set("strole", strole);
   return p.toString();
+}
+
+/**
+ * ソートリンク用 URL を生成する（列ヘッダクリック用）。
+ * 同一列クリックで昇降トグル、別列クリックで降順デフォルト。
+ */
+function buildSortHref(
+  base: URLSearchParams | string,
+  sortParam: string,
+  dirParam: string,
+  col: string,
+  currentSort: string | undefined,
+  currentDir: string | undefined,
+): string {
+  const p = new URLSearchParams(base.toString());
+  const isSameCol = currentSort === col;
+  const nextDir = isSameCol && currentDir === "desc" ? "asc" : "desc";
+  p.set(sortParam, col);
+  p.set(dirParam, nextDir);
+  return `/analytics?${p.toString()}`;
+}
+
+/** ソート列ヘッダに付ける ▲▼ インジケータ */
+function SortIndicator({ col, current, dir }: { col: string; current: string | undefined; dir: string | undefined }) {
+  if (current !== col) return <span className="text-line ml-0.5">↕</span>;
+  return <span className="text-accent ml-0.5">{dir === "asc" ? "▲" : "▼"}</span>;
 }
 
 async function PeopleSection({
   compare,
   comparestaff,
+  vasort,
+  vadir,
+  stsort,
+  stdir,
+  strole,
 }: {
   compare?: string;
   comparestaff?: string;
+  vasort?: string;
+  vadir?: string;
+  stsort?: string;
+  stdir?: string;
+  strole?: string;
 }) {
-  const [vas, staffBuckets] = await Promise.all([
+  const [vasRaw, staffBucketsRaw] = await Promise.all([
     getVoiceActorScorecards({ limit: 30 }).catch(() => []),
     getStaffScorecards({ limit: 15 }).catch(() => []),
   ]);
 
+  // ---- 声優スコアカード ソート ----
+  const vaAsc = vadir === "asc";
+  type VaKey = "appearances" | "leadRatio" | "leadAvgScore" | "battingAverage" | "momentum";
+  const VA_SORT_KEYS: VaKey[] = ["appearances", "leadRatio", "leadAvgScore", "battingAverage", "momentum"];
+  const vaKey = VA_SORT_KEYS.includes(vasort as VaKey) ? (vasort as VaKey) : null;
+  const vas = vaKey
+    ? [...vasRaw].sort((a, b) => {
+        const av = a[vaKey] ?? -Infinity;
+        const bv = b[vaKey] ?? -Infinity;
+        return vaAsc ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      })
+    : vasRaw;
+
+  // ---- スタッフ実績 ソート ----
+  const stAsc = stdir === "asc";
+  type StKey = "works" | "avgScore" | "battingAverage";
+  const ST_SORT_KEYS: StKey[] = ["works", "avgScore", "battingAverage"];
+  const stKey = ST_SORT_KEYS.includes(stsort as StKey) ? (stsort as StKey) : null;
+  const staffBuckets = staffBucketsRaw.map((bucket) => {
+    if (!stKey || (strole && strole !== bucket.role)) return bucket;
+    return {
+      ...bucket,
+      people: [...bucket.people].sort((a, b) => {
+        const av = a[stKey] ?? -Infinity;
+        const bv = b[stKey] ?? -Infinity;
+        return stAsc ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      }),
+    };
+  });
+
   const compareNames = parseCompareNames(compare);
-  const baseSp = peopleSp(compare, comparestaff);
+  const baseSp = peopleSp(compare, comparestaff, vasort, vadir, stsort, stdir, strole);
 
   // Staff compare: parse "roleKey:name1,name2"
   const [staffRoleKey, staffNamesRaw] = comparestaff ? comparestaff.split(":") : ["", ""];
@@ -1649,6 +1761,7 @@ async function PeopleSection({
           モメンタム＝直近2年と通算の平均スコア差（▲上昇／▽下降）。★＝直近1年に主演作が当該クール上位10%入り（ブレイク）。
           スコアはAniList優先、なければMAL換算。
         </p>
+        <SectionNote text={vaScorecardComment(vas)} />
         {vas.length === 0 ? (
           <p className="text-sm text-muted">スコアデータが十分に集まっていません。</p>
         ) : (
@@ -1658,11 +1771,31 @@ async function PeopleSection({
                 <tr className="text-xs text-muted border-b border-line">
                   <th className="text-left font-bold py-2 pr-2 w-6">#</th>
                   <th className="text-left font-bold py-2 pr-3">声優</th>
-                  <th className="text-center font-bold py-2 px-1 w-12">出演</th>
-                  <th className="text-center font-bold py-2 px-1 w-14">主演率</th>
-                  <th className="text-center font-bold py-2 px-1 w-20">主演作平均</th>
-                  <th className="text-center font-bold py-2 px-1 w-14">打率</th>
-                  <th className="text-center font-bold py-2 px-1 w-20">モメンタム</th>
+                  <th className="text-center font-bold py-2 px-1 w-12">
+                    <Link href={buildSortHref(new URLSearchParams(baseSp), "vasort", "vadir", "appearances", vasort, vadir)} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                      出演<SortIndicator col="appearances" current={vasort} dir={vadir} />
+                    </Link>
+                  </th>
+                  <th className="text-center font-bold py-2 px-1 w-14">
+                    <Link href={buildSortHref(new URLSearchParams(baseSp), "vasort", "vadir", "leadRatio", vasort, vadir)} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                      主演率<SortIndicator col="leadRatio" current={vasort} dir={vadir} />
+                    </Link>
+                  </th>
+                  <th className="text-center font-bold py-2 px-1 w-20">
+                    <Link href={buildSortHref(new URLSearchParams(baseSp), "vasort", "vadir", "leadAvgScore", vasort, vadir)} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                      主演作平均<SortIndicator col="leadAvgScore" current={vasort} dir={vadir} />
+                    </Link>
+                  </th>
+                  <th className="text-center font-bold py-2 px-1 w-14">
+                    <Link href={buildSortHref(new URLSearchParams(baseSp), "vasort", "vadir", "battingAverage", vasort, vadir)} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                      打率<SortIndicator col="battingAverage" current={vasort} dir={vadir} />
+                    </Link>
+                  </th>
+                  <th className="text-center font-bold py-2 px-1 w-20">
+                    <Link href={buildSortHref(new URLSearchParams(baseSp), "vasort", "vadir", "momentum", vasort, vadir)} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                      モメンタム<SortIndicator col="momentum" current={vasort} dir={vadir} />
+                    </Link>
+                  </th>
                   <th className="text-center font-bold py-2 pl-3 w-12">注目</th>
                   <th className="text-center font-bold py-2 pl-2 w-14">比較</th>
                 </tr>
@@ -1694,6 +1827,8 @@ async function PeopleSection({
             staffCompareNames={bucket.role === staffRoleKey ? staffCompareNames : []}
             comparestaff={comparestaff}
             baseSp={baseSp}
+            stsort={bucket.role === strole ? stsort : undefined}
+            stdir={bucket.role === strole ? stdir : undefined}
           />
         ))}
       </div>
@@ -2007,6 +2142,8 @@ function StaffBucketCard({
   staffCompareNames,
   comparestaff,
   baseSp,
+  stsort,
+  stdir,
 }: {
   label: string;
   roleKey: string;
@@ -2014,7 +2151,19 @@ function StaffBucketCard({
   staffCompareNames: string[];
   comparestaff: string | undefined;
   baseSp: string;
+  stsort?: string;
+  stdir?: string;
 }) {
+  // スタッフソートリンクは role を strole に付加してビルド
+  function stSortHref(col: string): string {
+    const p = new URLSearchParams(baseSp);
+    const isSame = stsort === col;
+    const nextDir = isSame && stdir === "desc" ? "asc" : "desc";
+    p.set("stsort", col);
+    p.set("stdir", nextDir);
+    p.set("strole", roleKey);
+    return `/analytics?${p.toString()}`;
+  }
   return (
     <section className="card p-5 sm:p-6">
       <h2 className="section-title text-base mb-3">{label}</h2>
@@ -2022,6 +2171,7 @@ function StaffBucketCard({
         <p className="text-sm text-muted">データがありません。</p>
       ) : (
         <>
+          <SectionNote text={staffBucketComment(people)} />
           {staffCompareNames.length >= 1 && (
             <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
               <span className="text-muted font-bold">比較中:</span>
@@ -2039,9 +2189,21 @@ function StaffBucketCard({
               <thead>
                 <tr className="text-[0.68rem] text-muted border-b border-line">
                   <th className="text-left font-bold py-1.5 pr-2">名前</th>
-                  <th className="text-center font-bold py-1.5 px-1 w-8">本</th>
-                  <th className="text-center font-bold py-1.5 px-1 w-10">平均</th>
-                  <th className="text-center font-bold py-1.5 px-1 w-10">打率</th>
+                  <th className="text-center font-bold py-1.5 px-1 w-8">
+                    <Link href={stSortHref("works")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                      本<SortIndicator col="works" current={stsort} dir={stdir} />
+                    </Link>
+                  </th>
+                  <th className="text-center font-bold py-1.5 px-1 w-10">
+                    <Link href={stSortHref("avgScore")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                      平均<SortIndicator col="avgScore" current={stsort} dir={stdir} />
+                    </Link>
+                  </th>
+                  <th className="text-center font-bold py-1.5 px-1 w-10">
+                    <Link href={stSortHref("battingAverage")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                      打率<SortIndicator col="battingAverage" current={stsort} dir={stdir} />
+                    </Link>
+                  </th>
                   <th className="text-left font-bold py-1.5 pl-2 w-16">直近</th>
                   <th className="text-center font-bold py-1.5 pl-1 w-10">比較</th>
                 </tr>
@@ -2414,11 +2576,23 @@ function GapStatusTag({ status }: { status: CollectionGap["status"] }) {
 
 /* ================================================================ 業界データ */
 
-async function IndustrySection({ period }: { period?: string }) {
+async function IndustrySection({
+  period,
+  scsort,
+  scdir,
+  gsort,
+  gdir,
+}: {
+  period?: string;
+  scsort?: string;
+  scdir?: string;
+  gsort?: string;
+  gdir?: string;
+}) {
   const curYear = new Date().getFullYear();
   const { filter, label, key } = parsePeriod(period, curYear);
 
-  const [volumeAll, scorecards, vas, popular, topAni, topMal, genreInsights, franchises] = await Promise.all([
+  const [volumeAll, scorecardsRaw, vas, popular, topAni, topMal, genreInsightsRaw, franchises] = await Promise.all([
     getSeasonVolume().catch((): SeasonVolume[] => []),
     getStudioScorecards({ limit: 20 }).catch((): StudioScorecard[] => []),
     getVaRanking(filter, 24).catch((): VaStat[] => []),
@@ -2428,6 +2602,32 @@ async function IndustrySection({ period }: { period?: string }) {
     getGenreInsights().catch(() => [] as GenreInsight[]),
     getFranchiseMomentum().catch(() => [] as FranchiseGroup[]),
   ]);
+
+  // ---- 制作会社スコアカード ソート ----
+  type ScKey = "worksCount" | "avgScore" | "battingAverage" | "consistency";
+  const SC_SORT_KEYS: ScKey[] = ["worksCount", "avgScore", "battingAverage", "consistency"];
+  const scKey = SC_SORT_KEYS.includes(scsort as ScKey) ? (scsort as ScKey) : null;
+  const scAsc = scdir === "asc";
+  const scorecards = scKey
+    ? [...scorecardsRaw].sort((a, b) => {
+        const av = a[scKey] ?? -Infinity;
+        const bv = b[scKey] ?? -Infinity;
+        return scAsc ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      })
+    : scorecardsRaw;
+
+  // ---- ジャンル動向 ソート ----
+  type GKey = "worksCount" | "avgPopularity" | "avgScore";
+  const G_SORT_KEYS: GKey[] = ["worksCount", "avgPopularity", "avgScore"];
+  const gKey = G_SORT_KEYS.includes(gsort as GKey) ? (gsort as GKey) : null;
+  const gAsc = gdir === "asc";
+  const genreInsights = gKey
+    ? [...genreInsightsRaw].sort((a, b) => {
+        const av = a[gKey] ?? -Infinity;
+        const bv = b[gKey] ?? -Infinity;
+        return gAsc ? (av as number) - (bv as number) : (bv as number) - (av as number);
+      })
+    : genreInsightsRaw;
 
   const maxVa = Math.max(1, ...vas.map((v) => v.work_count));
   const maxVol = Math.max(1, ...volumeAll.map((v) => v.work_count));
@@ -2474,22 +2674,31 @@ async function IndustrySection({ period }: { period?: string }) {
         const si = studioInsight(scorecards);
         return si ? <AutoInsight lines={[si]} /> : null;
       })()}
-      <StudioScorecardCard scorecards={scorecards} />
+      <StudioScorecardCard scorecards={scorecards} scsort={scsort} scdir={scdir} period={period} />
 
       {/* 高評価ランキング */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card title="高評価ランキング（AniList）" note="海外ユーザー評価・100点満点">
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">高評価ランキング（AniList）</h2>
+          <p className="text-xs text-muted mb-4">海外ユーザー評価・100点満点</p>
+          <SectionNote text={ratedRankingComment(topAni, "anilist")} />
           <RatedList works={topAni} metric="anilist" />
-        </Card>
-        <Card title="高評価ランキング（MyAnimeList）" note="世界最大級のDB・10点満点">
+        </section>
+        <section className="card p-5 sm:p-6">
+          <h2 className="section-title text-lg mb-1">高評価ランキング（MyAnimeList）</h2>
+          <p className="text-xs text-muted mb-4">世界最大級のDB・10点満点</p>
+          <SectionNote text={ratedRankingComment(topMal, "mal")} />
           <RatedList works={topMal} metric="mal" />
-        </Card>
+        </section>
       </div>
 
       {/* 人気作品 */}
-      <Card title="人気作品ランキング" note="Annictウォッチャー数（国内人気）">
+      <section className="card p-5 sm:p-6">
+        <h2 className="section-title text-lg mb-1">人気作品ランキング</h2>
+        <p className="text-xs text-muted mb-4">Annictウォッチャー数（国内人気）</p>
+        <SectionNote text={popularRankingComment(popular)} />
         <RankGrid works={popular} metric="popularity" />
-      </Card>
+      </section>
 
       {/* 声優出演数 */}
       <Card title="声優 出演数ランキング" note="出演作品数の多い順">
@@ -2515,7 +2724,7 @@ async function IndustrySection({ period }: { period?: string }) {
         const go = genreOpportunity(genreInsights);
         return go ? <AutoInsight lines={[go]} /> : null;
       })()}
-      <GenreTrendsCard insights={genreInsights} />
+      <GenreTrendsCard insights={genreInsights} gsort={gsort} gdir={gdir} period={period} />
 
       {/* ジャンル機会マップ（飽和×需要） */}
       <GenreOpportunityMapCard insights={genreInsights} />
@@ -2623,7 +2832,27 @@ function ScoreSparkline({ data }: { data: { year: number; avgScore: number }[] }
   );
 }
 
-function StudioScorecardCard({ scorecards }: { scorecards: StudioScorecard[] }) {
+function StudioScorecardCard({
+  scorecards,
+  scsort,
+  scdir,
+  period,
+}: {
+  scorecards: StudioScorecard[];
+  scsort?: string;
+  scdir?: string;
+  period?: string;
+}) {
+  function scSortHref(col: string): string {
+    const p = new URLSearchParams();
+    p.set("view", "industry");
+    if (period) p.set("period", period);
+    const isSame = scsort === col;
+    const nextDir = isSame && scdir === "desc" ? "asc" : "desc";
+    p.set("scsort", col);
+    p.set("scdir", nextDir);
+    return `/analytics?${p.toString()}`;
+  }
   return (
     <section className="card p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
@@ -2650,6 +2879,7 @@ function StudioScorecardCard({ scorecards }: { scorecards: StudioScorecard[] }) 
       <p className="text-[0.68rem] text-muted mb-4 leading-relaxed">
         打率＝各作品が「同クールのスコア中央値」以上だった割合。一貫性＝スコアのばらつきの小ささ。スコアはAniList(無ければMAL)。
       </p>
+      <SectionNote text={studioBucketComment(scorecards)} />
       {scorecards.length === 0 ? (
         <p className="text-sm text-muted">スコアデータが十分に集まっていません。</p>
       ) : (
@@ -2659,10 +2889,26 @@ function StudioScorecardCard({ scorecards }: { scorecards: StudioScorecard[] }) 
               <tr className="text-xs text-muted border-b border-line">
                 <th className="text-left font-bold py-2 pr-2 w-6">#</th>
                 <th className="text-left font-bold py-2 pr-3">制作会社</th>
-                <th className="text-center font-bold py-2 px-1 w-14">制作数</th>
-                <th className="text-center font-bold py-2 px-1 w-16">平均スコア</th>
-                <th className="text-left font-bold py-2 px-2 w-32">打率</th>
-                <th className="text-center font-bold py-2 px-1 w-14">一貫性</th>
+                <th className="text-center font-bold py-2 px-1 w-14">
+                  <Link href={scSortHref("worksCount")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                    制作数<SortIndicator col="worksCount" current={scsort} dir={scdir} />
+                  </Link>
+                </th>
+                <th className="text-center font-bold py-2 px-1 w-16">
+                  <Link href={scSortHref("avgScore")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                    平均スコア<SortIndicator col="avgScore" current={scsort} dir={scdir} />
+                  </Link>
+                </th>
+                <th className="text-left font-bold py-2 px-2 w-32">
+                  <Link href={scSortHref("battingAverage")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                    打率<SortIndicator col="battingAverage" current={scsort} dir={scdir} />
+                  </Link>
+                </th>
+                <th className="text-center font-bold py-2 px-1 w-14">
+                  <Link href={scSortHref("consistency")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                    一貫性<SortIndicator col="consistency" current={scsort} dir={scdir} />
+                  </Link>
+                </th>
                 <th className="text-left font-bold py-2 pl-3 w-24">直近トレンド</th>
               </tr>
             </thead>
@@ -2738,8 +2984,30 @@ function Card({ title, note, children }: { title: string; note?: string; childre
 
 /* ================================================================ ジャンル動向 */
 
-function GenreTrendsCard({ insights }: { insights: GenreInsight[] }) {
+function GenreTrendsCard({
+  insights,
+  gsort,
+  gdir,
+  period,
+}: {
+  insights: GenreInsight[];
+  gsort?: string;
+  gdir?: string;
+  period?: string;
+}) {
   const top = insights.slice(0, 24);
+
+  function gSortHref(col: string): string {
+    const p = new URLSearchParams();
+    p.set("view", "industry");
+    if (period) p.set("period", period);
+    const isSame = gsort === col;
+    const nextDir = isSame && gdir === "desc" ? "asc" : "desc";
+    p.set("gsort", col);
+    p.set("gdir", nextDir);
+    return `/analytics?${p.toString()}`;
+  }
+
   return (
     <section className="card p-5 sm:p-6">
       <h2 className="section-title text-lg mb-1">ジャンル動向</h2>
@@ -2747,6 +3015,7 @@ function GenreTrendsCard({ insights }: { insights: GenreInsight[] }) {
         AniList ジャンルタグ別の作品数・平均人気・平均スコア（上位24ジャンル）。
         スコアは AniList 優先、なければ MAL 換算。データは12時間ごとに補完されます。
       </p>
+      <SectionNote text={genreTrendsComment(insights)} />
       {top.length === 0 ? (
         <p className="text-sm text-muted">
           ジャンルデータはまだ補完されていません。enrich-scores スクリプト実行後に表示されます。
@@ -2757,9 +3026,21 @@ function GenreTrendsCard({ insights }: { insights: GenreInsight[] }) {
             <thead>
               <tr className="text-xs text-muted border-b border-line">
                 <th className="text-left font-bold py-2 pr-3">ジャンル</th>
-                <th className="text-center font-bold py-2 px-2 w-16">作品数</th>
-                <th className="text-center font-bold py-2 px-2 w-24">平均人気</th>
-                <th className="text-center font-bold py-2 px-2 w-20">平均スコア</th>
+                <th className="text-center font-bold py-2 px-2 w-16">
+                  <Link href={gSortHref("worksCount")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                    作品数<SortIndicator col="worksCount" current={gsort} dir={gdir} />
+                  </Link>
+                </th>
+                <th className="text-center font-bold py-2 px-2 w-24">
+                  <Link href={gSortHref("avgPopularity")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                    平均人気<SortIndicator col="avgPopularity" current={gsort} dir={gdir} />
+                  </Link>
+                </th>
+                <th className="text-center font-bold py-2 px-2 w-20">
+                  <Link href={gSortHref("avgScore")} className="hover:text-ink transition inline-flex items-center gap-0.5">
+                    平均スコア<SortIndicator col="avgScore" current={gsort} dir={gdir} />
+                  </Link>
+                </th>
               </tr>
             </thead>
             <tbody>

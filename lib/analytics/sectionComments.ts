@@ -10,6 +10,10 @@ import type { WorkReactionBreakdown } from "./workReactions.ts";
 import type { ReactionCategory } from "./commentAnalysis.ts";
 import type { CohortXBuzz, XBuzzVsJikkyo, EpisodeBuzzLeader, XTopicLeader } from "./xbuzz.ts";
 import type { OverallRankingRow } from "./overallRanking.ts";
+import type { VaScorecard, StaffScorecard } from "./people.ts";
+import type { StudioScorecard } from "./studios.ts";
+import type { GenreInsight } from "./genres.ts";
+import type { RatedWork } from "../analytics.ts";
 
 const REACTION_LABEL: Record<ReactionCategory, string> = {
   laugh: "笑い",
@@ -312,4 +316,101 @@ export function overallRankingComment(rows: OverallRankingRow[]): string | null 
     return `総合1位は『${top.title}』${scoreNote}。特に${strong[0]}シグナルが強い。`;
   }
   return `総合1位は『${top.title}』${scoreNote}。複数シグナルをバランスよく積み上げた。`;
+}
+
+/* ================================================================
+ * 人材タブ・業界データタブ追加コメント関数
+ * ================================================================ */
+
+/**
+ * 声優スコアカードのひとことメモ。
+ * ブレイク声優数・平均打率の傾向を述べる。
+ */
+export function vaScorecardComment(rows: VaScorecard[]): string | null {
+  if (rows.length === 0) return null;
+  const breakouts = rows.filter((r) => r.breakout).length;
+  const withBa = rows.filter((r) => isFinite(r.battingAverage) && r.battingAverage > 0);
+  if (withBa.length === 0) return null;
+  const avgBa = withBa.reduce((a, b) => a + b.battingAverage, 0) / withBa.length;
+  const baStr = `.${String(Math.round(avgBa * 1000)).padStart(3, "0")}`;
+  const top = rows[0];
+  const parts: string[] = [];
+  parts.push(`主演スコア1位は${top.name}（平均${top.leadAvgScore != null ? Math.round(top.leadAvgScore) : "—"}点）`);
+  if (breakouts > 0) parts.push(`ブレイク声優${breakouts}名`);
+  parts.push(`全体平均打率${baStr}`);
+  return parts.join("・") + "。";
+}
+
+/**
+ * スタッフ実績カードのひとことメモ（ロール別）。
+ * 平均スコアトップと打率トップを示す。
+ */
+export function staffBucketComment(rows: StaffScorecard[]): string | null {
+  if (rows.length < 2) return null;
+  const topScore = rows.reduce((a, b) => (b.avgScore > a.avgScore ? b : a));
+  const withBa = rows.filter((r) => isFinite(r.battingAverage) && r.battingAverage > 0);
+  if (withBa.length === 0) return `平均スコア1位は${topScore.name}（${Math.round(topScore.avgScore)}点）。`;
+  const topBa = withBa.reduce((a, b) => (b.battingAverage > a.battingAverage ? b : a));
+  const baStr = `.${String(Math.round(topBa.battingAverage * 1000)).padStart(3, "0")}`;
+  if (topScore.name === topBa.name) {
+    return `${topScore.name}がスコア・打率ともに1位（平均${Math.round(topScore.avgScore)}点、打率${baStr}）。`;
+  }
+  return `平均スコア1位: ${topScore.name}（${Math.round(topScore.avgScore)}点）、打率1位: ${topBa.name}（${baStr}）。`;
+}
+
+/**
+ * 制作会社スコアカードのひとことメモ。
+ * 平均スコアトップと最多制作数スタジオを示す。
+ */
+export function studioBucketComment(rows: StudioScorecard[]): string | null {
+  if (rows.length === 0) return null;
+  const top = rows[0]; // avgScore 降順で先頭
+  const mostWorks = rows.reduce((a, b) => (b.worksCount > a.worksCount ? b : a));
+  if (top.studio === mostWorks.studio) {
+    return `平均スコア・制作数ともにトップは${top.studio}（平均${Math.round(top.avgScore)}点・${top.worksCount}本）。`;
+  }
+  return `平均スコア1位: ${top.studio}（${Math.round(top.avgScore)}点）、制作数1位: ${mostWorks.studio}（${mostWorks.worksCount}本）。`;
+}
+
+/**
+ * 人気作品ランキングのひとことメモ。
+ * 1位の人気度と上位3作品の傾向を述べる。
+ */
+export function popularRankingComment(works: RatedWork[]): string | null {
+  if (works.length === 0) return null;
+  const top = works[0];
+  const pop = top.popularity ?? 0;
+  if (pop <= 0) return null;
+  const note = pop >= 10000 ? "圧倒的な認知度" : pop >= 3000 ? "高い認知度" : "堅実な人気";
+  return `人気1位は「${top.title}」（ウォッチャー数${pop.toLocaleString()}）—${note}。`;
+}
+
+/**
+ * 高評価ランキングのひとことメモ（AniList/MAL 共用）。
+ * 1位の作品とスコアを示す。
+ */
+export function ratedRankingComment(works: RatedWork[], metric: "anilist" | "mal"): string | null {
+  if (works.length === 0) return null;
+  const top = works[0];
+  const score = metric === "anilist" ? top.anilist_score : top.mal_score;
+  if (score == null) return null;
+  const label = metric === "anilist" ? "AniList" : "MAL";
+  return `${label}評価1位は「${top.title}」（${score}点）。`;
+}
+
+/**
+ * ジャンル動向のひとことメモ。
+ * 平均スコア最高のジャンルと作品数最多のジャンルを示す。
+ */
+export function genreTrendsComment(insights: GenreInsight[]): string | null {
+  if (insights.length < 3) return null;
+  const withScore = insights.filter((g) => g.avgScore != null);
+  const parts: string[] = [];
+  if (withScore.length > 0) {
+    const topScore = withScore.reduce((a, b) => ((b.avgScore ?? 0) > (a.avgScore ?? 0) ? b : a));
+    parts.push(`平均スコア最高ジャンルは「${topScore.genre}」（${topScore.avgScore?.toFixed(1)}点）`);
+  }
+  const topCount = insights.reduce((a, b) => (b.worksCount > a.worksCount ? b : a));
+  parts.push(`最多作品ジャンルは「${topCount.genre}」（${topCount.worksCount}本）`);
+  return parts.join("・") + "。";
 }
