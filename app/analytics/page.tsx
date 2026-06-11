@@ -1774,7 +1774,12 @@ function VaRow({
     <tr className={`border-b border-line/60 hover:bg-paper/60 ${inCompare ? "bg-surface" : ""}`}>
       <td className="py-2 pr-2 text-xs text-muted tabular-nums">{rank}</td>
       <td className="py-2 pr-3">
-        <span className="font-medium text-ink line-clamp-1">{v.name}</span>
+        <Link
+          href={`/analytics/people/va/${encodeURIComponent(v.name)}`}
+          className="font-medium text-ink hover:text-primary transition line-clamp-1"
+        >
+          {v.name}
+        </Link>
       </td>
       <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">{v.appearances}</td>
       <td className="py-2 px-1 text-center tabular-nums text-xs text-ink-soft">
@@ -1868,21 +1873,19 @@ function StaffBucketCard({
             </div>
           )}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[320px] text-sm border-collapse">
+            <table className="w-full min-w-[300px] text-sm border-collapse">
               <thead>
                 <tr className="text-[0.68rem] text-muted border-b border-line">
                   <th className="text-left font-bold py-1.5 pr-2">名前</th>
-                  <th className="text-center font-bold py-1.5 px-1 w-10">作品</th>
-                  <th className="text-center font-bold py-1.5 px-1 w-12">平均</th>
-                  <th className="text-center font-bold py-1.5 px-1 w-12">一貫性</th>
-                  <th className="text-center font-bold py-1.5 px-1 w-12">打率</th>
-                  <th className="text-left font-bold py-1.5 pl-2 w-20">直近</th>
-                  <th className="text-center font-bold py-1.5 pl-1 w-12">比較</th>
+                  <th className="text-center font-bold py-1.5 px-1 w-8">本</th>
+                  <th className="text-center font-bold py-1.5 px-1 w-10">平均</th>
+                  <th className="text-center font-bold py-1.5 px-1 w-10">打率</th>
+                  <th className="text-left font-bold py-1.5 pl-2 w-16">直近</th>
+                  <th className="text-center font-bold py-1.5 pl-1 w-10">比較</th>
                 </tr>
               </thead>
               <tbody>
                 {people.map((p) => {
-                  const conColor = consistencyColor(p.consistency);
                   const inCompare = staffCompareNames.includes(p.name);
                   const staffHref = buildStaffCompareHref(comparestaff, roleKey, p.name, baseSp);
                   return (
@@ -1890,19 +1893,19 @@ function StaffBucketCard({
                       key={p.name}
                       className={`border-b border-line/60 hover:bg-paper/60 ${inCompare ? "bg-surface" : ""}`}
                     >
-                      <td className="py-1.5 pr-2">
-                        <span className="font-medium text-ink line-clamp-1 text-xs">{p.name}</span>
+                      <td className="py-1.5 pr-2 max-w-[120px]">
+                        <Link
+                          href={`/analytics/people/staff/${encodeURIComponent(p.name)}`}
+                          className="font-medium text-ink hover:text-primary transition text-xs break-words leading-tight"
+                        >
+                          {p.name}
+                        </Link>
                       </td>
                       <td className="py-1.5 px-1 text-center tabular-nums text-xs text-ink-soft">
                         {p.works}
                       </td>
                       <td className="py-1.5 px-1 text-center tabular-nums font-black text-accent text-xs">
                         {Math.round(p.avgScore)}
-                      </td>
-                      <td
-                        className={`py-1.5 px-1 text-center tabular-nums font-bold text-xs ${conColor}`}
-                      >
-                        {p.consistency != null ? p.consistency : "—"}
                       </td>
                       <td className="py-1.5 px-1 text-center tabular-nums text-xs font-bold text-ink">
                         {formatBa(p.battingAverage)}
