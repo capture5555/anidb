@@ -33,7 +33,7 @@ import {
 import { getGenreInsightsUncached } from "../lib/analytics/genres.ts";
 import { getFranchiseMomentumUncached } from "../lib/analytics/franchise.ts";
 import { getCohortReactionAverageUncached } from "../lib/analytics/reactionFingerprint.ts";
-import { getTimeslotHeatmapUncached } from "../lib/analytics/timeslots.ts";
+import { getTimeslotHeatmapUncached, getTimeslotCompetitionUncached } from "../lib/analytics/timeslots.ts";
 import {
   getReactionRatiosLive,
   getJikkyoRetentionSeriesLive,
@@ -76,6 +76,7 @@ const UNITS: Unit[] = [
   { key: "hot_programs", compute: () => getHotProgramsLive(6, 14), count: (r) => r?.length ?? 0 },
   { key: "annict_retention", compute: () => getRetentionSeriesLive(100), count: (r) => r?.series?.length ?? 0 },
   { key: "timeslot_heatmap", compute: getTimeslotHeatmapUncached, count: (r) => r?.cells?.length ?? 0 },
+  { key: "timeslot_competition", compute: getTimeslotCompetitionUncached, count: (r) => r?.slots?.length ?? 0 },
   { key: "x_cohort_buzz", compute: () => getCohortXBuzzForSnapshot(20), count: (r) => r?.length ?? 0 },
   { key: "overall_ranking", compute: getOverallRankingUncached, count: (r) => r?.length ?? 0 },
   { key: "global_gap", compute: () => getGlobalGapUncached(30), count: (r) => r?.length ?? 0 },

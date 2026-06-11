@@ -234,31 +234,125 @@ function todayJst(): string {
     .replace(/\//g, "-");
 }
 
+/** NEWS_JSON ブロックの1要素として期待する形（緩く扱う）。 */
+interface NewsJsonItem {
+  title?: unknown;
+  summary?: unknown;
+  url?: unknown;
+}
+
+/**
+ * answer 末尾の `NEWS_JSON:` 以降の最初のバランスした [...] を切り出して JSON.parse する。
+ * POSTS_JSON 抽出（xPosts.ts の extractPostsJson）と同じ深さカウント方式。
+ * 失敗（マーカ無し/壊れ JSON）は [] を返す（throw しない）。
+ */
+function extractNewsJson(answer: string): NewsJsonItem[] {
+  if (!answer) return [];
+  const marker = answer.indexOf("NEWS_JSON:");
+  if (marker === -1) return [];
+  const rest = answer.slice(marker + "NEWS_JSON:".length);
+  const open = rest.indexOf("[");
+  if (open === -1) return [];
+
+  let depth = 0;
+  let end = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = open; i < rest.length; i++) {
+    const ch = rest[i];
+    if (escaped) { escaped = false; continue; }
+    if (inString) {
+      if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "[") depth++;
+    else if (ch === "]") {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rest.slice(open, end + 1));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((x): x is NewsJsonItem => x != null && typeof x === "object");
+}
+
 /**
  * x_search の answer（markdown 箇条書き）からニュース items を抽出する純関数。
  *
- * 対応フォーマット（すべて許容）:
+ * 二段構え:
+ *   (a) 回答末尾の `NEWS_JSON:` 以降の JSON 配列を JSON.parse（壊れていても try/catch）。
+ *   (b) 取れなければ従来のテキスト箇条書き抽出（番号・記号・見出し—要約・URL分離）にフォールバック。
+ *
+ * 対応フォーマット（フォールバック）:
  *   - 番号付き: `1. **見出し**\n   要約文`
  *   - 記号付き: `- **見出し** — 要約文` / `* 見出し：要約`
  *   - URL: 行末 or 次行の `https://...`
  *
- * 失敗・空は [] を返す（防御的）。
+ * 最大10件、title が空のものは除外、title 重複排除。失敗・空は [] を返す（防御的）。
  */
 function parseNewsItems(
   answer: string,
 ): { title: string; summary: string; url?: string }[] {
   if (!answer) return [];
   try {
-    const items: { title: string; summary: string; url?: string }[] = [];
+    /** markdown 装飾を剥がすユーティリティ（見出し・要約の両方で使う）。 */
+    const stripMarkdown = (s: string): string =>
+      s
+        .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/__([^_]+)__/g, "$1")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/\[\d+(?:\s*,\s*\d+)*\]/g, "")
+        .replace(/\[\[(\d+)\]\]\([^)]*\)/g, "")
+        .trim();
 
-    // 行を正規化（CRLF → LF、トリム）して空行で段落分割。
-    const paras = answer
+    const items: { title: string; summary: string; url?: string }[] = [];
+    const seenTitles = new Set<string>();
+
+    const push = (title: string, summary: string, url?: string): void => {
+      const t = title.trim();
+      const norm = t.toLowerCase();
+      if (!t || t.length < 3 || seenTitles.has(norm)) return;
+      seenTitles.add(norm);
+      items.push({ title: t, summary: summary.trim() || t, ...(url ? { url } : {}) });
+    };
+
+    // ── (a) NEWS_JSON: ブロックから抽出 ──────────────────────────────────
+    const jsonItems = extractNewsJson(answer);
+    for (const item of jsonItems) {
+      if (items.length >= 10) break;
+      const title = typeof item.title === "string" ? stripMarkdown(item.title) : "";
+      const summary = typeof item.summary === "string" ? stripMarkdown(item.summary) : "";
+      const url = typeof item.url === "string" && /^https?:\/\//.test(item.url)
+        ? item.url
+        : undefined;
+      push(title, summary || title, url);
+    }
+    if (items.length >= 3) return items; // JSON で十分取れたら即返す
+
+    // ── (b) テキスト箇条書きフォールバック ──────────────────────────────
+    // NEWS_JSON: より前の部分だけを対象にする（JSON ブロック自体を誤パースしない）。
+    const textPart = answer.indexOf("NEWS_JSON:") >= 0
+      ? answer.slice(0, answer.indexOf("NEWS_JSON:"))
+      : answer;
+
+    const paras = textPart
       .replace(/\r\n/g, "\n")
       .split(/\n{2,}/)
       .map((p) => p.trim())
       .filter(Boolean);
 
     for (const para of paras) {
+      if (items.length >= 10) break;
       const lines = para.split("\n").map((l) => l.trim()).filter(Boolean);
       if (lines.length === 0) continue;
 
@@ -278,17 +372,11 @@ function parseNewsItems(
       }
 
       // markdown の強調（**〜**）・コード装飾を外す。
-      rawHead = rawHead
-        .replace(/\*\*([^*]+)\*\*/g, "$1")
-        .replace(/__([^_]+)__/g, "$1")
-        .replace(/`([^`]+)`/g, "$1")
-        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // リンクは表示テキストへ
-        .trim();
+      rawHead = stripMarkdown(rawHead);
 
       if (!rawHead || rawHead.length < 3) continue; // ゴミ行をスキップ
 
-      // 2行目以降を要約とする。区切り文字（— / : 等）で分割してもよいが、
-      // まず残り行を結合し、次にURLを探す。
+      // 2行目以降を要約とする。
       const restLines = lines.slice(1);
       let summaryRaw = restLines.join(" ").trim();
 
@@ -311,25 +399,12 @@ function parseNewsItems(
       }
 
       // markdown 装飾を要約からも除去。
-      summaryRaw = summaryRaw
-        .replace(/\*\*([^*]+)\*\*/g, "$1")
-        .replace(/__([^_]+)__/g, "$1")
-        .replace(/`([^`]+)`/g, "$1")
-        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-        .replace(/\[\d+(?:\s*,\s*\d+)*\]/g, "")
-        .replace(/\[\[(\d+)\]\]\([^)]*\)/g, "")
-        .trim();
+      summaryRaw = stripMarkdown(summaryRaw);
 
       if (!rawHead) continue;
 
       const url = urlFromHead ?? urlFromSummary;
-      items.push({
-        title: rawHead,
-        summary: summaryRaw || rawHead,
-        ...(url ? { url } : {}),
-      });
-
-      if (items.length >= 8) break;
+      push(rawHead, summaryRaw || rawHead, url);
     }
 
     return items;
@@ -356,11 +431,14 @@ async function generateDailyNews(): Promise<void> {
   }
 
   const query =
-    `直近24時間の日本のアニメ業界のニュースを検索してください。` +
-    `新作発表・続編決定・放送開始・劇場公開・イベント・配信開始・声優キャスト・受賞など、` +
-    `業界の重要ニュースを最大8件選び、各ニュースを【見出し】と【1行要約】のセットで` +
-    `箇条書きで出力してください。URLがあれば各項目の末尾に添えてください。` +
-    `見出し・要約は日本語のみ。マーカーや余分な装飾は不要です。`;
+    `直近24〜48時間の日本のアニメ業界ニュースを検索してください。` +
+    `新作発表・続編決定・放送開始・劇場公開・イベント・配信開始・声優キャスト・受賞など` +
+    `業界の重要ニュースを**必ず6〜8件**選んでください。` +
+    `まず各ニュースを日本語の箇条書き（番号付き）で、見出しと1行要約のセットで説明してください。` +
+    `その後、回答の**最後の1行**に、必ず以下の機械可読フォーマットで JSON 配列を出力してください:\n` +
+    `NEWS_JSON: [{"title":"見出し（日本語）","summary":"1行要約（日本語）","url":"https://...（取れる場合のみ、無ければ空文字）"}]\n` +
+    `JSON 配列は必ず6〜8要素含めてください。title と summary は日本語のみ。url は実在するページの https:// URL か空文字。` +
+    `JSON 以外の余分なテキストを最終行に付けないでください。`;
 
   const res = await hermesXSearch(query);
   if (!res?.answer) {

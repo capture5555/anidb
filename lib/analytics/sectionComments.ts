@@ -18,6 +18,8 @@ import type { GlobalGapRow } from "./globalGap.ts";
 import type { FastStartRow } from "./fastStart.ts";
 import type { RiserRow } from "./risers.ts";
 import type { SequelProspectRow } from "./sequelProspect.ts";
+import type { TimeslotCompetitionSlot } from "./timeslots.ts";
+import { TIMESLOT_WEEKDAYS } from "./timeslots.ts";
 
 const REACTION_LABEL: Record<ReactionCategory, string> = {
   laugh: "笑い",
@@ -641,4 +643,22 @@ export function sequelProspectComment(rows: SequelProspectRow[]): string | null 
       : `今期: 条件次第${yellowCount}作品が多く、現状厳しい作品が大半。`;
 
   return `続編期待が最も高いのは『${top.title}』${scoreNote}。${strengthNote}。${distNote}`;
+}
+
+/**
+ * 混雑スロット（競合の多い枠）セクションのひとことメモ。
+ * 最も作品数が多いスロットと、2位との差を述べる。
+ * データが薄い（2スロット未満・最大2作品以下）場合は null。
+ */
+export function timeslotCompetitionComment(slots: TimeslotCompetitionSlot[]): string | null {
+  const contested = slots.filter((s) => s.count >= 2);
+  if (contested.length < 1) return null;
+  const top = contested[0]!;
+  const dow = TIMESLOT_WEEKDAYS[top.weekday] ?? "?";
+  const hourLabel = top.hour >= 24 ? `深夜${top.hour}時` : `${top.hour}時`;
+  const second = contested[1];
+  const secondNote = second
+    ? `次点は${TIMESLOT_WEEKDAYS[second.weekday] ?? "?"}${second.hour >= 24 ? `深夜${second.hour}時` : `${second.hour}時`}台（${second.count}作品）。`
+    : "";
+  return `最も競合が激しいのは${dow}${hourLabel}台（${top.count}作品）。${secondNote}`;
 }

@@ -65,10 +65,13 @@ import { getSeasonComment } from "@/lib/analytics/seasonComment";
 import { seasonSummary, studioInsight, vaInsight, genreOpportunity, franchiseInsight, compareInsight, compareStaffInsight, toPercentileRank } from "@/lib/analytics/insights";
 import {
   getTimeslotHeatmap,
+  getTimeslotCompetition,
   timeslotInsight,
   TIMESLOT_WEEKDAYS,
   type TimeslotHeatmap,
   type TimeslotCell,
+  type TimeslotCompetition,
+  type TimeslotCompetitionSlot,
 } from "@/lib/analytics/timeslots";
 import { AutoInsight } from "@/components/AutoInsight";
 import { RetentionChart } from "@/components/charts/RetentionChart";
@@ -97,6 +100,7 @@ import {
   seasonHeatmapComment,
   risersComment,
   sequelProspectComment,
+  timeslotCompetitionComment,
 } from "@/lib/analytics/sectionComments";
 import {
   getOverallRanking,
@@ -638,7 +642,7 @@ function OverallRankingCard({ rows }: { rows: OverallRankingRow[] }) {
 /* ================================================================ 視聴分析 */
 
 async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
-  const [retention, jikkyoRetention, hot, peaks, ratios, timeslots, overallRanking, fastStart, risers] = await Promise.all([
+  const [retention, jikkyoRetention, hot, peaks, ratios, timeslots, overallRanking, fastStart, risers, competition] = await Promise.all([
     basis === "annict"
       ? getRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] }))
       : getJikkyoRetentionSeries(100).catch(() => ({ snapshotDate: null, series: [] })),
@@ -653,6 +657,7 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
     getOverallRanking().catch((): OverallRankingRow[] => []),
     getFastStart(30).catch((): FastStartRow[] => []),
     getRisers(10).catch((): RiserRow[] => []),
+    getTimeslotCompetition().catch((): TimeslotCompetition => ({ slots: [] })),
   ]);
   // シーズン俯瞰ヒートマップ用: 常に実況コメントデータを使う
   const heatmapSeries = (jikkyoRetention ?? retention).series;
@@ -820,6 +825,9 @@ async function ViewingSection({ basis }: { basis: "jikkyo" | "annict" }) {
       {/* 放送曜日×時間帯ヒートマップ */}
       <TimeslotHeatmapCard heatmap={timeslots} />
 
+      {/* 混雑スロット（競合の多い枠） */}
+      <TimeslotCompetitionCard competition={competition} />
+
       {/* 初速ランキング（立ち上がりの強さ） */}
       {fastStart.length > 0 && (
         <FastStartRankingCard rows={fastStart} />
@@ -931,6 +939,82 @@ function TimeslotHeatmapCard({ heatmap }: { heatmap: TimeslotHeatmap }) {
         </div>
         <span>濃い=盛り上がる</span>
       </div>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- 混雑スロット（競合の多い枠） */
+
+/**
+ * 混雑スロット（競合の多い枠）カード（サーバーコンポーネント）。
+ * 作品数の多いスロット上位を、曜日・時間帯ラベル＋作品ポスター小＋作品名（/analytics/works/[id]へリンク）で一覧する。
+ * データが薄い（2作品以上のスロットが1つもない）場合は非表示。
+ */
+function TimeslotCompetitionCard({ competition }: { competition: TimeslotCompetition }) {
+  const { slots } = competition;
+  // 2作品以上が競合するスロットのみ表示
+  const contested = slots.filter((s) => s.count >= 2);
+  if (contested.length === 0) return null;
+
+  const comment = timeslotCompetitionComment(contested);
+  // 上位8スロットを表示（それ以上は省略）
+  const topSlots = contested.slice(0, 8);
+
+  const slotLabel = (s: TimeslotCompetitionSlot) => {
+    const dow = TIMESLOT_WEEKDAYS[s.weekday] ?? "?";
+    const h = s.hour >= 24 ? `深夜${s.hour}時` : `${s.hour}時`;
+    return `${dow}${h}`;
+  };
+
+  return (
+    <section className="card p-5 sm:p-6">
+      <h2 className="section-title text-lg mb-1">混雑スロット（競合の多い枠）</h2>
+      <p className="text-xs text-muted mb-4">
+        今期放送中作品を曜日×時間帯スロットに割り当て、同一枠に並ぶ作品数を集計。
+        枠競合が多いほど視聴者の分散が起きやすい。編成・配信の優先枠検討に。
+      </p>
+      <SectionNote text={comment} />
+      <ol className="space-y-4">
+        {topSlots.map((slot) => {
+          const MAX_VISIBLE = 6;
+          const visible = slot.works.slice(0, MAX_VISIBLE);
+          const overflow = slot.count - MAX_VISIBLE;
+          return (
+            <li key={`${slot.weekday}:${slot.hour}`} className="border border-line rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="text-sm font-black text-ink">{slotLabel(slot)}</span>
+                <span className="text-xs font-bold text-accent tabular-nums">
+                  {slot.count}作品
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {visible.map((work) => (
+                  <Link
+                    key={work.workId}
+                    href={`/analytics/works/${work.workId}`}
+                    className="flex items-center gap-1.5 rounded-md border border-line bg-paper px-2 py-1 hover:border-accent/50 transition group"
+                  >
+                    <WorkCover
+                      id={work.workId}
+                      title={work.title}
+                      url={work.posterUrl}
+                      className="w-6 h-8 rounded-sm shrink-0"
+                    />
+                    <span className="text-xs font-bold text-ink group-hover:text-primary transition max-w-[10rem] truncate">
+                      {work.title}
+                    </span>
+                  </Link>
+                ))}
+                {overflow > 0 && (
+                  <span className="flex items-center px-2 py-1 text-xs text-muted tabular-nums">
+                    他{overflow}作品
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }
