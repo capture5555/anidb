@@ -1,0 +1,36 @@
+# 6時間おきに、X Premium+のOAuth(またはAPIキー)でアニメのXバズを収集する。未設定ならスキップ。
+# サブスクのクォータを節約するため実行頻度は控えめ(6h)。
+# 必要な GitHub Secrets:
+#   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+#   XAI_API_KEY（有料APIキー。空でも可） もしくは XAI_REFRESH_TOKEN + XAI_OAUTH_CLIENT_ID
+#   ※ XAI_REFRESH_TOKEN はローカルで `npm run xai-login` を実行して取得する。
+name: cron-x-buzz
+
+on:
+  schedule:
+    - cron: "45 */6 * * *" # 6時間おき（クォータ節約）
+  workflow_dispatch:
+
+concurrency:
+  group: cron-x-buzz
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run collect-x-buzz
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          XAI_REFRESH_TOKEN: ${{ secrets.XAI_REFRESH_TOKEN }}
+          XAI_OAUTH_CLIENT_ID: ${{ secrets.XAI_OAUTH_CLIENT_ID }}
+          X_BUZZ_LIMIT: "15"
