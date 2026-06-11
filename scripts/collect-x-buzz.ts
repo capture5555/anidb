@@ -51,13 +51,46 @@ function isMissingTable(error: unknown): boolean {
   return e.code === "42P01" || /analytics_x_buzz.*does not exist/i.test(e.message ?? "");
 }
 
+/**
+ * カラム未作成(42703)エラーの検出（マイグレーション 0013 適用前を穏当に扱う）。
+ * summary/citations/episode_id を含む insert が落ちたら、これらを外して再試行する。
+ */
+function isMissingColumn(error: unknown): boolean {
+  const e = error as { code?: string; message?: string } | null;
+  if (!e) return false;
+  return e.code === "42703" || /column/i.test(e.message ?? "");
+}
+
 const WINDOW_HOURS = 24;
+/** summary は長くなりがちなので保存前に丸める上限。 */
+const SUMMARY_MAX = 4000;
+/** citations の保存上限件数。 */
+const CITATIONS_CAP = 12;
+
+/** URL 配列を重複排除しつつ件数上限でまとめる。 */
+function dedupCitations(citations: { url: string }[]): { url: string }[] {
+  const seen = new Set<string>();
+  const out: { url: string }[] = [];
+  for (const c of citations) {
+    const url = c?.url;
+    if (typeof url === "string" && url.length > 0 && !seen.has(url)) {
+      seen.add(url);
+      out.push({ url });
+      if (out.length >= CITATIONS_CAP) break;
+    }
+  }
+  return out;
+}
 
 interface BuzzRow {
   volume_score: number;
   sentiment: string | null;
   topics: string[];
   quotes: string[];
+  /** Mode B のみ: Grok の回答 markdown（~4000字に丸め）。Mode A は null。 */
+  summary: string | null;
+  /** Mode B のみ: 重複排除・上限済みの引用 URL。Mode A は []。 */
+  citations: { url: string }[];
 }
 
 /** Mode B: Hermes(x_search_tool) で作品のバズを導出する。失敗時は null。 */
@@ -69,19 +102,77 @@ async function collectHermes(title: string): Promise<BuzzRow | null> {
     `（volumeは投稿量の体感: 0=ほぼ無し,5=トレンド級）。`;
   const res = await hermesXSearch(query);
   if (!res) return null;
-  return buzzFromAnswer(title, res.answer, res.citations.length);
+  const buzz = buzzFromAnswer(title, res.answer, res.citations.length);
+  return {
+    ...buzz,
+    summary: res.answer ? res.answer.trim().slice(0, SUMMARY_MAX) : null,
+    citations: dedupCitations(res.citations),
+  };
 }
 
 /** Mode A: xAI(Grok) の searchAnimeBuzz で作品のバズを導出する。失敗時は null。 */
 async function collectXai(title: string): Promise<BuzzRow | null> {
   const buzz = await searchAnimeBuzz(title, [], WINDOW_HOURS);
   if (!buzz) return null;
+  // Mode A は answer markdown を持たないため summary/citations は空のまま。
   return {
     volume_score: buzz.post_volume_estimate,
     sentiment: buzz.sentiment,
     topics: buzz.notable_topics,
     quotes: buzz.sample_quotes,
+    summary: null,
+    citations: [],
   };
+}
+
+/** insert に渡す行の形（新カラム summary/citations/episode_id を含む）。 */
+interface InsertRow {
+  work_id: string;
+  window_hours: number;
+  volume_score: number;
+  sentiment: string | null;
+  topics: string[];
+  quotes: string[];
+  summary: string | null;
+  citations: { url: string }[];
+  episode_id?: string | null;
+}
+
+/**
+ * analytics_x_buzz への防御的 insert。
+ * まず summary/citations/episode_id を含めて insert を試み、カラム未作成(42703)で
+ * 落ちたらこれらを外して再試行する（マイグレーション 0013 適用前でも従来通り動く）。
+ * 戻り値は最終的なエラー（成功なら null）。テーブル未作成(42P01)はそのまま返す。
+ */
+async function insertBuzzRow(
+  db: ReturnType<typeof getAdminClient>,
+  row: InsertRow,
+): Promise<{ code?: string; message?: string } | null> {
+  const base = {
+    work_id: row.work_id,
+    window_hours: row.window_hours,
+    volume_score: row.volume_score,
+    sentiment: row.sentiment,
+    topics: row.topics,
+    quotes: row.quotes,
+  };
+  const full: Record<string, unknown> = {
+    ...base,
+    summary: row.summary,
+    citations: row.citations,
+  };
+  if (row.episode_id != null) full.episode_id = row.episode_id;
+
+  const { error: insErr } = await db.from("analytics_x_buzz").insert(full);
+  if (!insErr) return null;
+  if (isMissingTable(insErr)) return insErr;
+  if (isMissingColumn(insErr)) {
+    // マイグレーション 0013 前: 新カラムを外して再試行（episode 行はそもそも保存不能なのでスキップ）。
+    if (row.episode_id != null) return insErr;
+    const { error: retryErr } = await db.from("analytics_x_buzz").insert(base);
+    return retryErr ?? null;
+  }
+  return insErr;
 }
 
 async function main() {
@@ -135,13 +226,15 @@ async function main() {
         continue;
       }
 
-      const { error: insErr } = await db.from("analytics_x_buzz").insert({
+      const insErr = await insertBuzzRow(db, {
         work_id: w.id,
         window_hours: WINDOW_HOURS,
         volume_score: buzz.volume_score,
         sentiment: buzz.sentiment,
         topics: buzz.topics,
         quotes: buzz.quotes,
+        summary: buzz.summary,
+        citations: buzz.citations,
       });
 
       if (insErr) {
@@ -164,10 +257,160 @@ async function main() {
     await sleep(interCallSleepMs);
   }
 
+  // 話数別の視聴者反応パス（Mode B = Hermes のみ。answer markdown が必要なため）。
+  if (hermes) {
+    try {
+      await collectEpisodeBuzz(db);
+    } catch (e) {
+      console.error("[collect-x-buzz] 話数別パスで例外:", e);
+    }
+  }
+
   console.log(
     `[collect-x-buzz] done: mode=${mode} inserted=${inserted} skipped=${skipped} errors=${errors} targets=${targets.length}`,
   );
   process.exit(0);
+}
+
+/**
+ * 話数別の視聴者反応を収集する（Mode B 専用）。
+ * 直近(now-48h〜now-30min)に放送が終わった「放送中作品の本放送回」を episode_id 単位で集め、
+ * 各話について Hermes に最新話の反応を問い合わせて 1 行（episode_id 付き）を insert する。
+ * 直近7日以内に同じ episode_id の行があればスキップ（毎ラン同じ話を問い合わせない）。
+ */
+async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promise<void> {
+  const epLimit = Number(process.env.X_EPISODE_BUZZ_LIMIT) || 8;
+  const now = Date.now();
+  const lowerIso = new Date(now - 48 * 3600 * 1000).toISOString();
+  const upperIso = new Date(now - 30 * 60 * 1000).toISOString();
+
+  // 直近に放送終了した、放送中作品の本放送回（episode_id 付き）を取得。
+  const { data: progs, error: progErr } = await db
+    .from("programs")
+    .select(
+      "work_id, episode_id, end_at, works!inner(title, status), episodes(number, number_text, title)",
+    )
+    .eq("is_rebroadcast", false)
+    .eq("works.status", "airing")
+    .not("episode_id", "is", null)
+    .gte("end_at", lowerIso)
+    .lte("end_at", upperIso)
+    .order("end_at", { ascending: false })
+    .limit(500);
+
+  if (progErr) {
+    // テーブル/カラム未作成や join 失敗等は穏当にスキップ（cron を落とさない）。
+    console.warn("[collect-x-buzz] 話数別: programs 取得をスキップ:", progErr.message ?? progErr);
+    return;
+  }
+
+  // episode_id でデデュープ（複数チャンネルで同一話が複数番組になりうる）。
+  const byEp = new Map<
+    string,
+    { workId: string; workTitle: string; epLabel: string; subtitle: string }
+  >();
+  for (const p of progs ?? []) {
+    const epId = (p as { episode_id?: string | null }).episode_id;
+    const workId = (p as { work_id?: string | null }).work_id;
+    if (!epId || !workId || byEp.has(epId)) continue;
+    const work = (p as { works?: { title?: string } }).works;
+    const ep = (p as {
+      episodes?: { number?: number | null; number_text?: string | null; title?: string | null };
+    }).episodes;
+    const workTitle = work?.title ?? "";
+    if (!workTitle) continue;
+    const epLabel =
+      ep?.number_text ?? (ep?.number != null ? `第${ep.number}話` : "最新話");
+    const subtitle = ep?.title ? `「${ep.title}」` : "";
+    byEp.set(epId, { workId, workTitle, epLabel, subtitle });
+  }
+
+  if (byEp.size === 0) {
+    console.log("[collect-x-buzz] 話数別: 対象なし");
+    return;
+  }
+
+  // 直近7日以内に既に行のある episode_id を除外（再問い合わせ防止）。新カラム未作成なら全件対象。
+  const sevenDaysIso = new Date(now - 7 * 24 * 3600 * 1000).toISOString();
+  const epIds = [...byEp.keys()];
+  try {
+    const existing = new Set<string>();
+    for (let from = 0; from < epIds.length; from += 100) {
+      const slice = epIds.slice(from, from + 100);
+      const { data, error } = await db
+        .from("analytics_x_buzz")
+        .select("episode_id")
+        .in("episode_id", slice)
+        .gt("captured_at", sevenDaysIso);
+      if (error) {
+        if (isMissingColumn(error) || isMissingTable(error)) break; // マイグレーション前 → 除外なし
+        break;
+      }
+      for (const r of data ?? []) {
+        const id = (r as { episode_id?: string | null }).episode_id;
+        if (id) existing.add(id);
+      }
+    }
+    for (const id of existing) byEp.delete(id);
+  } catch {
+    /* 除外できなくても致命的でない（最悪、重複問い合わせになるだけ） */
+  }
+
+  const candidates = [...byEp.entries()].slice(0, epLimit);
+  let epInserted = 0;
+  let epSkipped = 0;
+  let epErrors = 0;
+
+  for (const [episodeId, info] of candidates) {
+    try {
+      const query =
+        `アニメ『${info.workTitle}』の『${info.epLabel}${info.subtitle}』（最新話）について` +
+        `X上の視聴者の評価・反応を検索して要約してください。` +
+        `最後に必ず1行 BUZZ_JSON: {"volume":0..5,"sentiment":"positive|mixed|negative",` +
+        `"topics":["…"],"quotes":["実際のポストの短い引用…"]} を出力。`;
+      const res = await hermesXSearch(query);
+      if (!res) {
+        epSkipped++;
+        await sleep(1000);
+        continue;
+      }
+      const buzz = buzzFromAnswer(info.workTitle, res.answer, res.citations.length);
+      const insErr = await insertBuzzRow(db, {
+        work_id: info.workId,
+        window_hours: 48,
+        volume_score: buzz.volume_score,
+        sentiment: buzz.sentiment,
+        topics: buzz.topics,
+        quotes: buzz.quotes,
+        summary: res.answer ? res.answer.trim().slice(0, SUMMARY_MAX) : null,
+        citations: dedupCitations(res.citations),
+        episode_id: episodeId,
+      });
+      if (insErr) {
+        if (isMissingTable(insErr) || isMissingColumn(insErr)) {
+          console.warn(
+            "[collect-x-buzz] 話数別: 新カラム/テーブル未作成のため中止（0013_x_buzz_ext.sql 適用前）",
+          );
+          break;
+        }
+        epErrors++;
+        console.error(`[collect-x-buzz] 話数別 insert 失敗: ${info.workTitle} ${info.epLabel}`, insErr);
+      } else {
+        epInserted++;
+        console.log(
+          `[collect-x-buzz] 話数別 ok: ${info.workTitle} ${info.epLabel} volume=${buzz.volume_score}`,
+        );
+      }
+    } catch (e) {
+      epErrors++;
+      console.error(`[collect-x-buzz] 話数別 例外: ${info.workTitle} ${info.epLabel}`, e);
+    }
+    await sleep(1000);
+  }
+
+  console.log(
+    `[collect-x-buzz] 話数別 done: episodes inserted=${epInserted} skipped=${epSkipped} errors=${epErrors} candidates=${candidates.length}`,
+  );
 }
 
 main().catch((e) => {
