@@ -20,6 +20,8 @@ import { getFastStart } from "@/lib/analytics/fastStart";
 import { WorkKpiStrip } from "@/components/charts/WorkKpiStrip";
 import { SectionNote } from "@/components/charts/WorkAnalysisSections";
 import { scoreReason } from "@/lib/analytics/sectionComments";
+import { getAiCommentHistory } from "@/lib/analytics/aiComments";
+import { AiCommentStepper } from "@/components/charts/AiCommentStepper";
 
 export async function generateMetadata({
   params,
@@ -37,8 +39,8 @@ export default async function WorkAnalyticsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  // 5本の重い取得を並列化（互いに依存しない）。各々のフォールバックは従来どおり。
-  const [analysis, cohort, cohortReaction, xbuzz, xposts, overallRanking, fastStartRanking] =
+  // 各データを並列取得（互いに依存しない）。各々のフォールバックは従来どおり。
+  const [analysis, cohort, cohortReaction, xbuzz, xposts, overallRanking, fastStartRanking, workAiHistory] =
     await Promise.all([
       getWorkAnalysis(id).catch(() => null),
       getWorkCohortPosition(id).catch(() => null),
@@ -54,6 +56,8 @@ export default async function WorkAnalyticsPage({
       getOverallRanking().catch((): import("@/lib/analytics/overallRanking").OverallRanking => []),
       // 初速ランキング（KPI カード用）。失敗時は []
       getFastStart().catch((): import("@/lib/analytics/fastStart").FastStartRow[] => []),
+      // 作品別AIコメント履歴。失敗・未蓄積は []
+      getAiCommentHistory("work", id, 10).catch(() => []),
     ]);
   if (!analysis) notFound();
 
@@ -127,18 +131,38 @@ export default async function WorkAnalyticsPage({
       </div>
 
       <div className="space-y-5 py-5">
-        {/* AIの所感（既存の Grok x_search 「作品の声」を短く再利用）。無ければ非表示。 */}
-        {xbuzz?.summary && (
-          <div className="card p-4 sm:p-5 border-l-4 border-l-accent">
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-[0.7rem] font-black text-accent">AIの所感</span>
-              <span className="text-[0.66rem] text-muted">Grok・X</span>
+        {/* AIの所感（作品の声）。履歴が2件以上あればステッパーで過去も辿れる。 */}
+        {(workAiHistory.length > 0 || xbuzz?.summary) && (() => {
+          // 履歴優先、なければ xbuzz.summary を1件として使う
+          const stepperItems =
+            workAiHistory.length > 0
+              ? workAiHistory.map((c) => ({
+                  body: c.body,
+                  generatedAt: c.generatedAt,
+                  title: c.title ?? undefined,
+                }))
+              : xbuzz?.summary
+                ? [{ body: xbuzz.summary, generatedAt: "", title: undefined }]
+                : [];
+
+          if (stepperItems.length === 0) return null;
+
+          return (
+            <div className="card p-4 sm:p-5 border-l-4 border-l-accent">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[0.7rem] font-black text-accent">AIの所感</span>
+                <span className="text-[0.66rem] text-muted">Grok・X</span>
+              </div>
+              {stepperItems.length >= 2 ? (
+                <AiCommentStepper items={stepperItems} />
+              ) : (
+                <p className="text-[0.9rem] leading-[1.8] text-ink-soft whitespace-pre-wrap">
+                  {stepperItems[0]?.body}
+                </p>
+              )}
             </div>
-            <p className="text-[0.9rem] leading-[1.8] text-ink-soft whitespace-pre-wrap">
-              {xbuzz.summary}
-            </p>
-          </div>
-        )}
+          );
+        })()}
         {cohort && <CohortPositionPanel position={cohort} />}
         <WorkAnalysisSections analysis={analysis} cohortReaction={cohortReaction} />
 
