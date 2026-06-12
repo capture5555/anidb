@@ -30,6 +30,30 @@ const DAY_COLOR: Record<number, string> = {
   6: "#2f6fdb", // 土
 };
 
+// チャンネル別表示の並び順（地上波→BS→CS）。前方一致で判定し、未知局は末尾に五十音順。
+const CHANNEL_ORDER = [
+  "NHK総合",
+  "NHK Eテレ",
+  "NHK",
+  "日本テレビ",
+  "テレビ朝日",
+  "TBS",
+  "テレビ東京",
+  "フジテレビ",
+  "TOKYO MX",
+  "BS11",
+  "BS日テレ",
+  "BSフジ",
+  "BS朝日",
+  "BS-TBS",
+  "BSテレ東",
+  "AT-X",
+];
+function channelRank(name: string): number {
+  const i = CHANNEL_ORDER.findIndex((p) => name.includes(p));
+  return i < 0 ? CHANNEL_ORDER.length : i;
+}
+
 export default async function SchedulePage({
   searchParams,
 }: {
@@ -50,14 +74,29 @@ export default async function SchedulePage({
   const provider = await getDataProvider();
   const entries = await provider.getSchedule(channels, scope);
 
-  const byDay = new Map<number, (ScheduleEntry & { slotLabel: string; sortKey: number })[]>();
+  // チャンネル別にグルーピング。各局内は 曜日(月曜始まり) → 時刻 の順。
+  type Row = ScheduleEntry & { slotLabel: string; weekdayRank: number; timeKey: number };
+  const byChannel = new Map<string, Row[]>();
   for (const e of entries) {
     const s = airSlot(e.startAt);
-    const item = { ...e, slotLabel: s.label, sortKey: s.hour * 60 + s.minute };
-    if (!byDay.has(e.weekday)) byDay.set(e.weekday, []);
-    byDay.get(e.weekday)!.push(item);
+    const ch = e.channelName ?? "放送局未定";
+    const row: Row = {
+      ...e,
+      slotLabel: s.label,
+      weekdayRank: ORDER.indexOf(e.weekday),
+      timeKey: s.hour * 60 + s.minute,
+    };
+    if (!byChannel.has(ch)) byChannel.set(ch, []);
+    byChannel.get(ch)!.push(row);
   }
-  for (const list of byDay.values()) list.sort((a, b) => a.sortKey - b.sortKey || b.popularity - a.popularity);
+  for (const list of byChannel.values()) {
+    list.sort(
+      (a, b) => a.weekdayRank - b.weekdayRank || a.timeKey - b.timeKey || b.popularity - a.popularity,
+    );
+  }
+  const orderedChannels = [...byChannel.keys()].sort(
+    (a, b) => channelRank(a) - channelRank(b) || a.localeCompare(b, "ja"),
+  );
 
   return (
     <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -94,8 +133,8 @@ export default async function SchedulePage({
         </nav>
         <p className="text-sm text-ink-soft mt-3">
           {scope === "next"
-            ? "次クールに放送予定のTVアニメ（判明している放送枠のみ）。配信は含みません。"
-            : "選択した放送局で放送されるTVアニメ（地上波・BS/CS）を曜日・時間順に。配信は含みません。"}
+            ? "次クールに放送予定のTVアニメを放送局ごとに（局内は曜日・時刻順）。判明している放送枠のみ・配信は含みません。"
+            : "選択した放送局で放送されるTVアニメ（地上波・BS/CS）を放送局ごとに（局内は曜日・時刻順）。配信は含みません。"}
           「登録」からカレンダー購読リストへ追加できます。深夜帯は前日の25:00〜表記です。
         </p>
       </div>
@@ -111,19 +150,27 @@ export default async function SchedulePage({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">
-          {ORDER.filter((wd) => byDay.has(wd)).map((wd) => (
-            <section key={wd} className="card overflow-hidden self-start">
+          {orderedChannels.map((ch) => (
+            <section key={ch} className="card overflow-hidden self-start">
               <div className="flex items-baseline gap-2 px-4 py-2.5 bg-paper border-b border-line">
-                <h2 className="text-base font-black" style={{ color: DAY_COLOR[wd] }}>
-                  {WEEKDAY_LABELS[wd]}曜日
-                </h2>
-                <span className="text-xs text-muted ml-auto tabular-nums">{byDay.get(wd)!.length}本</span>
+                <h2 className="text-base font-black text-ink truncate">{ch}</h2>
+                <span className="text-xs text-muted ml-auto tabular-nums shrink-0">
+                  {byChannel.get(ch)!.length}本
+                </span>
               </div>
               <ul className="divide-y divide-line">
-                {byDay.get(wd)!.map((e) => (
+                {byChannel.get(ch)!.map((e) => (
                   <li key={e.workId} className="flex gap-3 items-center px-3.5 py-2.5">
-                    <span className="font-black text-[0.82rem] text-ink tabular-nums shrink-0 w-12">
-                      {e.slotLabel}
+                    <span className="flex flex-col items-center shrink-0 w-12">
+                      <span
+                        className="text-[0.7rem] font-black leading-none"
+                        style={{ color: DAY_COLOR[e.weekday] }}
+                      >
+                        {WEEKDAY_LABELS[e.weekday]}
+                      </span>
+                      <span className="font-black text-[0.82rem] text-ink tabular-nums leading-tight mt-0.5">
+                        {e.slotLabel}
+                      </span>
                     </span>
                     <Link href={`/works/${e.workId}`} className="shrink-0">
                       <WorkCover
@@ -141,9 +188,9 @@ export default async function SchedulePage({
                         {e.title}
                       </Link>
                       <p className="text-[0.7rem] text-muted truncate">
-                        {e.channelName ?? "放送局未定"}
-                        {e.count != null && ` ・ 第${e.count}話`}
-                        {e.popularity > 0 && ` ・ ♥${formatPopularity(e.popularity)}`}
+                        {e.count != null && `第${e.count}話`}
+                        {e.count != null && e.popularity > 0 && " ・ "}
+                        {e.popularity > 0 && `♥${formatPopularity(e.popularity)}`}
                       </p>
                     </div>
                     <div className="shrink-0">
