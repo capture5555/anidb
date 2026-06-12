@@ -712,7 +712,9 @@ async function main() {
 async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promise<void> {
   const epLimit = Number(process.env.X_EPISODE_BUZZ_LIMIT) || 8;
   const now = Date.now();
-  const lowerIso = new Date(now - 48 * 3600 * 1000).toISOString();
+  // 候補窓は5日。週1放送＋人気度優先採用＋7日デデュープにより、人気作の「最新話」を
+  // 取りこぼさず（2日以上前に放送された回もバックフィルしつつ）重複なく拾える。
+  const lowerIso = new Date(now - 5 * 24 * 3600 * 1000).toISOString();
   const upperIso = new Date(now - 30 * 60 * 1000).toISOString();
 
   // 直近に放送終了した、放送中作品の本放送回（episode_id 付き）を取得。
