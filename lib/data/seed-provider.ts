@@ -10,7 +10,7 @@ import type {
 import { nextSeason, seasonOf, seasonSlug, SEASON_ORDER } from "../season.ts";
 import { airSlot } from "../format.ts";
 import { channelMatches, channelRankBy } from "../channels.ts";
-import { isNonWork } from "../nonWork.ts";
+import { isNonWork, isExcludedListMedia, mediaAllowedInList } from "../nonWork.ts";
 import type { ScheduleEntry } from "../types.ts";
 
 function toSummary(w: WorkDetail): WorkSummary {
@@ -34,8 +34,11 @@ export class SeedDataProvider implements DataProvider {
     const cur = seasonOf(now);
     const nxt = nextSeason(cur.year, cur.season);
 
-    // 非作品（PV/CM/プロモ/音楽/ピッコマ等）をサイト全体で除外
-    let items = SEED_WORKS.filter((w) => !isNonWork(w));
+    // 非作品（PV/CM/プロモ/ピッコマ/ゲーム宣伝等）と対象外media（ova/web/other）を除外。
+    // media不明(null)は放送枠(programs)があれば残す。
+    let items = SEED_WORKS.filter(
+      (w) => !isNonWork(w) && mediaAllowedInList(w.media, (w.programs?.length ?? 0) > 0),
+    );
 
     if (query.tab) {
       switch (query.tab) {
@@ -144,7 +147,7 @@ export class SeedDataProvider implements DataProvider {
     const nxt = nextSeason(seasonOf(new Date()).year, seasonOf(new Date()).season);
     const entries: ScheduleEntry[] = [];
     for (const w of SEED_WORKS) {
-      if (w.media === "movie" || isNonWork(w)) continue;
+      if (w.media === "movie" || isExcludedListMedia(w.media) || isNonWork(w)) continue;
       if (scope === "next") {
         if (w.status === "finished") continue;
         if (w.seasonYear !== nxt.year || w.seasonName !== nxt.season) continue;

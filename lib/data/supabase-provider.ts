@@ -8,7 +8,14 @@ import type {
   WorkSummary,
 } from "../types.ts";
 import { nextSeason, seasonOf, seasonSlug, SEASON_ORDER } from "../season.ts";
-import { NON_WORK_OR_FILTER, isNonWork } from "../nonWork.ts";
+import {
+  NON_WORK_OR_FILTER,
+  LIST_MEDIA_OR_FILTER,
+  DENYLIST_ILIKE_TERMS,
+  isNonWork,
+  isExcludedListMedia,
+  mediaAllowedInList,
+} from "../nonWork.ts";
 import { airSlot } from "../format.ts";
 import { channelMatches, channelRankBy } from "../channels.ts";
 import type { ScheduleEntry } from "../types.ts";
@@ -76,12 +83,16 @@ export class SupabaseDataProvider implements DataProvider {
 
     let q = this.db
       .from("works")
-      .select("id, title, title_kana, key_visual_url, poster_url, season_year, season_name, status, media, popularity, created_at, work_genres(genres(name))", {
+      .select("id, title, title_kana, key_visual_url, poster_url, season_year, season_name, status, media, popularity, created_at, programs(count), work_genres(genres(name))", {
         count: "exact",
       });
 
     // 非作品（PV/CM/プロモ/音楽/ピッコマ等）をサイト全体で除外
     q = q.or(NON_WORK_OR_FILTER);
+    // media を TV・映画・不明に絞る（ova/web/other を除外）。null は放送枠の有無で後段判定。
+    q = q.or(LIST_MEDIA_OR_FILTER);
+    // デニーリスト（ゲーム宣伝アニメ等）を媒体に関わらず除外
+    for (const term of DENYLIST_ILIKE_TERMS) q = q.not("title", "ilike", `%${term}%`);
 
     // media が null の作品も除外されないよう「movie以外 or null」で映画を除く
     const notMovie = "media.neq.movie,media.is.null";
@@ -113,7 +124,12 @@ export class SupabaseDataProvider implements DataProvider {
     const { data, error, count } = await q;
     if (error) throw error;
 
-    const rows = sortWorkRows(data ?? [], query.sort);
+    // media不明(null)は放送枠(programs)がある場合のみ残す
+    const programCount = (row: any): number => (Array.isArray(row.programs) ? row.programs[0]?.count ?? 0 : 0);
+    const allowed = (data ?? []).filter((row: any) => mediaAllowedInList(row.media, programCount(row) > 0));
+    const removed = (data ?? []).length - allowed.length;
+
+    const rows = sortWorkRows(allowed, query.sort);
     const items: WorkSummary[] = rows.map((row: any) => ({
       id: row.id,
       title: row.title,
@@ -127,7 +143,9 @@ export class SupabaseDataProvider implements DataProvider {
       genres: (row.work_genres ?? []).map((wg: any) => wg.genres?.name).filter(Boolean),
     }));
 
-    const total = count ?? items.length;
+    // 取得済みが全件（count <= perPage）なら除外後の実数で total を補正、そうでなければ近似。
+    const rawCount = count ?? items.length;
+    const total = rawCount <= perPage ? items.length : Math.max(0, rawCount - removed);
     return { items, page, perPage, total, hasNext: from + perPage < total };
   }
 
@@ -262,6 +280,7 @@ export class SupabaseDataProvider implements DataProvider {
     const byWork = new Map<string, any>();
     for (const p of data ?? []) {
       if ((p as any).works.media === "movie") continue;
+      if (isExcludedListMedia((p as any).works.media)) continue; // ova/web/other を除外
       if (isNonWork((p as any).works)) continue;
       if (!channelMatches((p as any).channels?.name ?? null, channels)) continue;
       const id = (p as any).works.id;
@@ -309,6 +328,7 @@ export class SupabaseDataProvider implements DataProvider {
     const rankByWork = new Map<string, number>();
     for (const p of (data ?? []) as any[]) {
       if (p.works.media === "movie") continue;
+      if (isExcludedListMedia(p.works.media)) continue; // ova/web/other を除外
       if (isNonWork(p.works)) continue;
       // ネット配信・対象外ローカル局は「この後の放送」に出さない
       if (!channelMatches(p.channels?.name ?? null, channels)) continue;
