@@ -65,9 +65,10 @@ jobs:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           XAI_REFRESH_TOKEN: ${{ secrets.XAI_REFRESH_TOKEN }}
           XAI_OAUTH_CLIENT_ID: ${{ secrets.XAI_OAUTH_CLIENT_ID }}
-          # ~15作品 + ~10話数 ≈ 25クエリ/回（3hごと。サブスク枠~30/2h以内に収まる）。
+          # ~15作品 + ~12話数 ≈ 29クエリ/回（3hごと）。話数別は人気度降順で採用するため
+          # 人気タイトルの最新話を優先カバー。2連続実行(~54)でもレート制限に当たらず余裕を確認済み。
           X_BUZZ_LIMIT: "15"
-          X_EPISODE_BUZZ_LIMIT: "10"
+          X_EPISODE_BUZZ_LIMIT: "12"
 
       # 実行中に hermes-agent が更新（ローテーション）した OAuth トークンを Secret へ
       # 書き戻し、次回以降の失効を防ぐ。GH_SECRETS_PAT(Secrets:write) が無ければ静かにスキップ。

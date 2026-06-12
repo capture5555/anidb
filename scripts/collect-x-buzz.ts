@@ -719,7 +719,7 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
   const { data: progs, error: progErr } = await db
     .from("programs")
     .select(
-      "work_id, episode_id, end_at, works!inner(title, status), episodes(number, number_text, title)",
+      "work_id, episode_id, end_at, works!inner(title, status, popularity), episodes(number, number_text, title)",
     )
     .eq("is_rebroadcast", false)
     .eq("works.status", "airing")
@@ -738,13 +738,13 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
   // episode_id でデデュープ（複数チャンネルで同一話が複数番組になりうる）。
   const byEp = new Map<
     string,
-    { workId: string; workTitle: string; epLabel: string; subtitle: string }
+    { workId: string; workTitle: string; epLabel: string; subtitle: string; popularity: number }
   >();
   for (const p of progs ?? []) {
     const epId = (p as { episode_id?: string | null }).episode_id;
     const workId = (p as { work_id?: string | null }).work_id;
     if (!epId || !workId || byEp.has(epId)) continue;
-    const work = (p as { works?: { title?: string } }).works;
+    const work = (p as { works?: { title?: string; popularity?: number | null } }).works;
     const ep = (p as {
       episodes?: { number?: number | null; number_text?: string | null; title?: string | null };
     }).episodes;
@@ -753,7 +753,8 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
     const epLabel =
       ep?.number_text ?? (ep?.number != null ? `第${ep.number}話` : "最新話");
     const subtitle = ep?.title ? `「${ep.title}」` : "";
-    byEp.set(epId, { workId, workTitle, epLabel, subtitle });
+    const popularity = typeof work?.popularity === "number" ? work.popularity : 0;
+    byEp.set(epId, { workId, workTitle, epLabel, subtitle, popularity });
   }
 
   if (byEp.size === 0) {
@@ -787,7 +788,12 @@ async function collectEpisodeBuzz(db: ReturnType<typeof getAdminClient>): Promis
     /* 除外できなくても致命的でない（最悪、重複問い合わせになるだけ） */
   }
 
-  const candidates = [...byEp.entries()].slice(0, epLimit);
+  // 人気度(popularity)降順で優先採用し、人気タイトルの最新話を取りこぼさない。
+  // 同点は Map の挿入順（end_at 降順＝放送が新しい順）が安定ソートで保たれる。
+  // 採用されなかった回も7日デデュープにより次回以降の実行で順次拾われる。
+  const candidates = [...byEp.entries()]
+    .sort((a, b) => b[1].popularity - a[1].popularity)
+    .slice(0, epLimit);
   let epInserted = 0;
   let epSkipped = 0;
   let epErrors = 0;
