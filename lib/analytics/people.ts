@@ -101,6 +101,38 @@ interface WorkRow {
   mal_score: number | null; // numeric → number に変換
 }
 
+/**
+ * 人材ランキングの集計対象期間。
+ *  - 未指定/空        : 全期間
+ *  - { year, season } : そのクールのみ（例: 今期）
+ *  - { sinceYear }    : その年以降（例: 直近1年=今年, 直近3年=今年-2）
+ */
+export interface PeoplePeriod {
+  year?: number;
+  season?: string;
+  sinceYear?: number;
+}
+
+/** 作品が対象期間に含まれるか。 */
+function inPeriod(w: WorkRow, p?: PeoplePeriod): boolean {
+  if (!p || (p.year == null && p.sinceYear == null)) return true;
+  if (p.year != null && p.season) {
+    return w.season_year === p.year && w.season_name === p.season;
+  }
+  if (p.sinceYear != null) {
+    return w.season_year != null && w.season_year >= p.sinceYear;
+  }
+  return true;
+}
+
+/** 期間つきメモ化キーの断片。 */
+function periodKey(p?: PeoplePeriod): string {
+  if (!p) return "all";
+  if (p.year != null && p.season) return `${p.year}-${p.season}`;
+  if (p.sinceYear != null) return `since${p.sinceYear}`;
+  return "all";
+}
+
 /** work_casts + works の結合行 */
 interface CastWorkRow {
   person_name: string;
@@ -173,8 +205,12 @@ function buildSeasonStats(
 export async function getVoiceActorScorecardsUncached(opts?: {
   minWorks?: number;
   limit?: number;
+  period?: PeoplePeriod;
 }): Promise<VaScorecard[]> {
-  const minWorks = opts?.minWorks ?? 3;
+  const period = opts?.period;
+  const hasPeriod = periodKey(period) !== "all";
+  // 期間を絞ると母数が減るため、ノイズフロアを既定で緩める（1作品から表示）。
+  const minWorks = opts?.minWorks ?? (hasPeriod ? 1 : 3);
   const limit = opts?.limit ?? 30;
   const curYear = new Date().getFullYear();
 
@@ -212,6 +248,7 @@ export async function getVoiceActorScorecardsUncached(opts?: {
   for (const row of rows) {
     const name = row.person_name;
     if (!name) continue;
+    if (!inPeriod(row.works as WorkRow, period)) continue; // 対象期間外は集計しない
     if (!vaMap.has(name)) vaMap.set(name, { works: new Map() });
     const acc = vaMap.get(name)!;
     const sort = row.sort ?? 999;
@@ -316,7 +353,7 @@ export async function getVoiceActorScorecardsUncached(opts?: {
 /** 声優スコアカードの LIVE 計算（opts 単位で30分メモ化）。 */
 const getVoiceActorScorecardsLive = memoizeTTL(
   getVoiceActorScorecardsUncached,
-  (opts) => `va:${opts?.minWorks ?? 3}:${opts?.limit ?? 30}`,
+  (opts) => `va:${opts?.minWorks ?? "d"}:${opts?.limit ?? 30}:${periodKey(opts?.period)}`,
   1800000,
 );
 
@@ -328,10 +365,12 @@ const getVoiceActorScorecardsLive = memoizeTTL(
 export function getVoiceActorScorecards(opts?: {
   minWorks?: number;
   limit?: number;
+  period?: PeoplePeriod;
 }): Promise<VaScorecard[]> {
   const minWorks = opts?.minWorks ?? 3;
   const limit = opts?.limit ?? 30;
-  const isDefault = minWorks === 3 && limit === 30;
+  // 全期間・デフォルト条件のときだけ事前計算スナップショットを使う。
+  const isDefault = minWorks === 3 && limit === 30 && periodKey(opts?.period) === "all";
   if (!isDefault) return getVoiceActorScorecardsLive(opts);
   return fromSnapshotOrLive("va_scorecards", () => getVoiceActorScorecardsLive(opts));
 }
@@ -361,8 +400,12 @@ const ROLE_BUCKETS: RoleBucket[] = [
  */
 export async function getStaffScorecardsUncached(opts?: {
   limit?: number;
+  period?: PeoplePeriod;
 }): Promise<{ role: StaffRoleKey; label: string; people: StaffScorecard[] }[]> {
   const limit = opts?.limit ?? 15;
+  const period = opts?.period;
+  const hasPeriod = periodKey(period) !== "all";
+  const noiseFloor = hasPeriod ? 1 : 2; // 期間を絞ると母数が減るため緩める
   const db = getAdminClient();
 
   const rows = await paginate<StaffWorkRow>((from) =>
@@ -396,6 +439,7 @@ export async function getStaffScorecardsUncached(opts?: {
   for (const row of rows) {
     const name = row.person_name;
     if (!name || !row.role) continue;
+    if (!inPeriod(row.works as WorkRow, period)) continue; // 対象期間外は集計しない
     for (const b of ROLE_BUCKETS) {
       if (!row.role.includes(b.keyword)) continue;
       const byPerson = buckets.get(b.key)!;
@@ -422,7 +466,7 @@ export async function getStaffScorecardsUncached(opts?: {
         if (score != null) scoredPairs.push({ work: w, score });
       }
       const scoredWorks = scoredPairs.length;
-      if (scoredWorks < 2) continue; // ノイズフロア
+      if (scoredWorks < noiseFloor) continue; // ノイズフロア
 
       const scores = scoredPairs.map((p) => p.score);
       const avgScore = mean(scores);
@@ -479,7 +523,7 @@ export async function getStaffScorecardsUncached(opts?: {
 /** スタッフスコアカードの LIVE 計算（opts 単位で30分メモ化）。 */
 const getStaffScorecardsLive = memoizeTTL(
   getStaffScorecardsUncached,
-  (opts) => `staff:${opts?.limit ?? 15}`,
+  (opts) => `staff:${opts?.limit ?? 15}:${periodKey(opts?.period)}`,
   1800000,
 );
 
@@ -490,9 +534,10 @@ const getStaffScorecardsLive = memoizeTTL(
  */
 export function getStaffScorecards(opts?: {
   limit?: number;
+  period?: PeoplePeriod;
 }): Promise<{ role: StaffRoleKey; label: string; people: StaffScorecard[] }[]> {
   const limit = opts?.limit ?? 15;
-  const isDefault = limit === 15;
+  const isDefault = limit === 15 && periodKey(opts?.period) === "all";
   if (!isDefault) return getStaffScorecardsLive(opts);
   return fromSnapshotOrLive("staff_scorecards", () => getStaffScorecardsLive(opts));
 }

@@ -281,6 +281,7 @@ export default async function AnalyticsPage({
         <ScorecardSection />
       ) : view === "people" ? (
         <PeopleSection
+          period={sp.period}
           compare={sp.compare}
           comparestaff={sp.comparestaff}
           vasort={sp.vasort}
@@ -2151,9 +2152,11 @@ function peopleSp(
   stsort?: string,
   stdir?: string,
   strole?: string,
+  period?: string,
 ): string {
   const p = new URLSearchParams();
   p.set("view", "people");
+  if (period && period !== "all") p.set("period", period);
   if (compare) p.set("compare", compare);
   if (comparestaff) p.set("comparestaff", comparestaff);
   if (vasort) p.set("vasort", vasort);
@@ -2191,6 +2194,7 @@ function SortIndicator({ col, current, dir }: { col: string; current: string | u
 }
 
 async function PeopleSection({
+  period,
   compare,
   comparestaff,
   vasort,
@@ -2199,6 +2203,7 @@ async function PeopleSection({
   stdir,
   strole,
 }: {
+  period?: string;
   compare?: string;
   comparestaff?: string;
   vasort?: string;
@@ -2207,9 +2212,21 @@ async function PeopleSection({
   stdir?: string;
   strole?: string;
 }) {
+  // 期間フィルタ（今期 / 直近1年 / 直近3年 / 全期間）。
+  const cur = seasonOf(new Date());
+  const curSlug = `${cur.year}-${cur.season}`;
+  const { filter: periodFilter, key: periodActiveKey } = parsePeriod(period, cur.year);
+  const periodChips = [
+    { key: curSlug, label: "今期" },
+    { key: "1y", label: "直近1年" },
+    { key: "3y", label: "直近3年" },
+    { key: "all", label: "全期間" },
+  ];
+  const hasPeriod = periodActiveKey !== "all";
+
   const [vasRaw, staffBucketsRaw] = await Promise.all([
-    getVoiceActorScorecards({ limit: 30 }).catch(() => []),
-    getStaffScorecards({ limit: 15 }).catch(() => []),
+    getVoiceActorScorecards({ limit: 30, period: periodFilter }).catch(() => []),
+    getStaffScorecards({ limit: 15, period: periodFilter }).catch(() => []),
   ]);
 
   // ---- 声優スコアカード ソート ----
@@ -2243,7 +2260,7 @@ async function PeopleSection({
   });
 
   const compareNames = parseCompareNames(compare);
-  const baseSp = peopleSp(compare, comparestaff, vasort, vadir, stsort, stdir, strole);
+  const baseSp = peopleSp(compare, comparestaff, vasort, vadir, stsort, stdir, strole, periodActiveKey);
 
   // Staff compare: parse "roleKey:name1,name2"
   const [staffRoleKey, staffNamesRaw] = comparestaff ? comparestaff.split(":") : ["", ""];
@@ -2258,6 +2275,31 @@ async function PeopleSection({
 
   return (
     <div className="space-y-5">
+      {/* 集計期間フィルタ */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-muted font-bold mr-1">集計期間</span>
+        {periodChips.map((c) => {
+          const isActive = periodActiveKey === c.key;
+          const href =
+            c.key === "all"
+              ? "/analytics?view=people"
+              : `/analytics?view=people&period=${c.key}`;
+          return (
+            <Link
+              key={c.key}
+              href={href}
+              className={`text-xs font-medium px-3 py-1 rounded-full transition ${
+                isActive
+                  ? "bg-ink text-white"
+                  : "bg-surface border border-line text-ink-soft hover:border-line-strong"
+              }`}
+            >
+              {c.label}
+            </Link>
+          );
+        })}
+      </div>
+
       {/* 声優インサイト */}
       {(() => {
         const vi = vaInsight(vas);
@@ -2309,7 +2351,7 @@ async function PeopleSection({
           )}
         </div>
         <p className="text-xs text-muted mb-1">
-          主演作の平均スコア順（ノイズ除去のためスコア付き出演3本以上が対象）。注目度の高い声優を上位に表示。
+          主演作の平均スコア順（ノイズ除去のためスコア付き出演{hasPeriod ? "1本" : "3本"}以上が対象）。注目度の高い声優を上位に表示。
         </p>
         <p className="text-[0.68rem] text-muted mb-4 leading-relaxed">
           主演＝キャスト表の上位（sort上位）を主演級とみなした近似。打率＝出演作が同クールのスコア中央値以上だった割合。
