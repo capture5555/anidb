@@ -175,7 +175,11 @@ export function hermesXSearch(
       }
       const answer = typeof o.answer === "string" ? o.answer : "";
       if (!answer) {
-        logFailureOnce("answer が空でした");
+        // 空応答の原因切り分け用に、返ってきたオブジェクトの中身と stderr を出す。
+        // （OAuth失効・クォータ・レスポンス形式変更などを判別するため）
+        logFailureOnce(
+          `answer が空でした。keys=[${Object.keys(o).join(",")}] raw=${JSON.stringify(o).slice(0, 500)} stderr=${stderr.slice(0, 400)}`,
+        );
         finish(null);
         return;
       }
