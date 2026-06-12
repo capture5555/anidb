@@ -136,11 +136,21 @@ export class SeedDataProvider implements DataProvider {
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ja"));
   }
 
-  async getSchedule(channels: string[] = []): Promise<ScheduleEntry[]> {
+  async getSchedule(
+    channels: string[] = [],
+    scope: "current" | "next" = "current",
+  ): Promise<ScheduleEntry[]> {
     const now = Date.now();
+    const nxt = nextSeason(seasonOf(new Date()).year, seasonOf(new Date()).season);
     const entries: ScheduleEntry[] = [];
     for (const w of SEED_WORKS) {
-      if (w.status !== "airing" || w.media === "movie" || isNonWork(w)) continue;
+      if (w.media === "movie" || isNonWork(w)) continue;
+      if (scope === "next") {
+        if (w.status === "finished") continue;
+        if (w.seasonYear !== nxt.year || w.seasonName !== nxt.season) continue;
+      } else if (w.status !== "airing") {
+        continue;
+      }
       // 選択局（空なら配信以外の全放送波）で最も早い放送を代表に選ぶ。
       const next = w.programs
         .filter(

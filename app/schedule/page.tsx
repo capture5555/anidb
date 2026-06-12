@@ -30,7 +30,14 @@ const DAY_COLOR: Record<number, string> = {
   6: "#2f6fdb", // 土
 };
 
-export default async function SchedulePage() {
+export default async function SchedulePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ scope?: string }>;
+}) {
+  const sp = await searchParams;
+  const scope: "current" | "next" = sp.scope === "next" ? "next" : "current";
+
   // 放送局選択を Cookie から取得。未設定なら（レガシー）地域の種から既定セットを使う。
   const cookieStore = await cookies();
   const cookieChannels = parseChannelsCookie(cookieStore.get(CHANNELS_COOKIE)?.value);
@@ -41,7 +48,7 @@ export default async function SchedulePage() {
   const loggedIn = isGoogleConfigured() && (await getSession()) != null;
 
   const provider = await getDataProvider();
-  const entries = await provider.getSchedule(channels);
+  const entries = await provider.getSchedule(channels, scope);
 
   const byDay = new Map<number, (ScheduleEntry & { slotLabel: string; sortKey: number })[]>();
   for (const e of entries) {
@@ -61,8 +68,34 @@ export default async function SchedulePage() {
             <ChannelSelector initial={channels} loggedIn={loggedIn} />
           </div>
         </div>
-        <p className="text-sm text-ink-soft mt-1.5">
-          選択した放送局で放送されるTVアニメ（地上波・BS/CS）を曜日・時間順に。配信は含みません。
+        <nav className="border-b-2 border-line mt-3">
+          <ul className="flex gap-1 -mb-[2px]">
+            {[
+              { key: "current", label: "今期" },
+              { key: "next", label: "来季" },
+            ].map((t) => {
+              const isActive = t.key === scope;
+              return (
+                <li key={t.key}>
+                  <Link
+                    href={t.key === "current" ? "/schedule" : "/schedule?scope=next"}
+                    className={`inline-block px-5 sm:px-7 py-2.5 font-bold text-[0.95rem] border-b-[3px] transition-colors ${
+                      isActive
+                        ? "border-accent text-ink"
+                        : "border-transparent text-muted hover:text-ink-soft"
+                    }`}
+                  >
+                    {t.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+        <p className="text-sm text-ink-soft mt-3">
+          {scope === "next"
+            ? "次クールに放送予定のTVアニメ（判明している放送枠のみ）。配信は含みません。"
+            : "選択した放送局で放送されるTVアニメ（地上波・BS/CS）を曜日・時間順に。配信は含みません。"}
           「登録」からカレンダー購読リストへ追加できます。深夜帯は前日の25:00〜表記です。
         </p>
       </div>
@@ -70,7 +103,11 @@ export default async function SchedulePage() {
       {entries.length === 0 ? (
         <div className="card py-20 text-center">
           <p className="text-lg font-bold">表示できる放送予定がありません</p>
-          <p className="text-sm text-muted mt-2">データの取り込み後に表示されます。</p>
+          <p className="text-sm text-muted mt-2">
+            {scope === "next"
+              ? "来季の放送枠はまだ判明していません。判明後に表示されます。"
+              : "データの取り込み後に表示されます。"}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">

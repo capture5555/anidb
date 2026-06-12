@@ -19,8 +19,9 @@ export interface DataProvider {
   /**
    * ミニ番組表：放送中TV作品の次回放送を返す（選択された放送局のみ）。
    * channels が空のときは「配信以外の全放送波」を既定として返す（空にしない）。
+   * @param scope "current"=今期(放送中) / "next"=来季(次クール放送予定)。既定は current。
    */
-  getSchedule(channels?: string[]): Promise<ScheduleEntry[]>;
+  getSchedule(channels?: string[], scope?: "current" | "next"): Promise<ScheduleEntry[]>;
   /**
    * 直近の放送（この後の放送）を早い順に返す（1作品1件・選択局を優先）。
    * channels が空のときは「配信以外の全放送波」を既定とする。

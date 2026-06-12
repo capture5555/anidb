@@ -229,21 +229,33 @@ export class SupabaseDataProvider implements DataProvider {
     return (data ?? []).map((g: any) => g.name);
   }
 
-  async getSchedule(channels: string[] = []): Promise<ScheduleEntry[]> {
+  async getSchedule(
+    channels: string[] = [],
+    scope: "current" | "next" = "current",
+  ): Promise<ScheduleEntry[]> {
     const now = new Date();
     const nowIso = now.toISOString();
-    const horizon = new Date(now.getTime() + 8 * 86400000).toISOString();
-    const { data, error } = await this.db
+    // 今期は直近8日、来季は次クール開始までを見込んで120日先まで
+    const horizonDays = scope === "next" ? 120 : 8;
+    const horizon = new Date(now.getTime() + horizonDays * 86400000).toISOString();
+    let qb = this.db
       .from("programs")
       .select(
-        "start_at, count, channels(name), works!inner(id, title, poster_url, key_visual_url, status, media, popularity)",
+        "start_at, count, channels(name), works!inner(id, title, poster_url, key_visual_url, status, media, popularity, season_year, season_name)",
       )
       .gte("start_at", nowIso)
       .lte("start_at", horizon)
-      .eq("is_rebroadcast", false)
-      .eq("works.status", "airing")
-      .order("start_at", { ascending: true })
-      .limit(8000);
+      .eq("is_rebroadcast", false);
+    if (scope === "next") {
+      const nxt = nextSeason(seasonOf(now).year, seasonOf(now).season);
+      qb = qb
+        .eq("works.season_year", nxt.year)
+        .eq("works.season_name", nxt.season)
+        .neq("works.status", "finished");
+    } else {
+      qb = qb.eq("works.status", "airing");
+    }
+    const { data, error } = await qb.order("start_at", { ascending: true }).limit(8000);
     if (error) throw error;
 
     // 作品ごとに「選択局の代表局で最も早い放送」を代表として1件に集約（映画・配信・対象外ローカルは除外）
