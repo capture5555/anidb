@@ -7,7 +7,8 @@ import type {
   WorkQuery,
   WorkSummary,
 } from "../types.ts";
-import { nextSeason, seasonOf, seasonSlug } from "../season.ts";
+import { nextSeason, seasonOf, seasonSlug, SEASON_ORDER } from "../season.ts";
+import { NON_WORK_OR_FILTER, isNonWork } from "../nonWork.ts";
 import { airSlot } from "../format.ts";
 import { channelMatches, channelRankBy } from "../channels.ts";
 import type { ScheduleEntry } from "../types.ts";
@@ -17,6 +18,48 @@ function chRank(name: string | null): number {
   if (!name) return 99;
   const i = CH_PRIORITY.findIndex((p) => name.includes(p));
   return i < 0 ? 90 : i;
+}
+
+/** クール(season_year, season_name)を時系列の数値キーへ。未定は null。 */
+function seasonSortKey(row: { season_year: number | null; season_name: string | null }): number | null {
+  if (!row.season_year || !row.season_name) return null;
+  const idx = SEASON_ORDER.indexOf(row.season_name as (typeof SEASON_ORDER)[number]);
+  if (idx < 0) return null;
+  return row.season_year * 10 + idx;
+}
+
+/**
+ * 取得済みの作品行を映画タブの並び替え種別に従ってJSで整列する。
+ * 未指定/"popular" はDB既定順（人気順）のまま返す。
+ */
+function sortWorkRows<T extends {
+  title_kana: string | null;
+  created_at?: string | null;
+  season_year: number | null;
+  season_name: string | null;
+  status: string;
+}>(rows: T[], sort: WorkQuery["sort"]): T[] {
+  if (!sort || sort === "popular") return rows;
+  const arr = [...rows];
+  if (sort === "newest") {
+    arr.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  } else if (sort === "kana") {
+    arr.sort((a, b) => (a.title_kana ?? "～").localeCompare(b.title_kana ?? "～", "ja"));
+  } else if (sort === "upcoming") {
+    // 公開予定が近い順: 未公開/放送中を近いクール順で先頭に、公開済みは新しい順で後ろに。
+    const rank = (r: T) => (r.status === "finished" ? 1 : 0);
+    arr.sort((a, b) => {
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+      const ka = seasonSortKey(a);
+      const kb = seasonSortKey(b);
+      if (ka == null) return kb == null ? 0 : 1;
+      if (kb == null) return -1;
+      return ra === 1 ? kb - ka : ka - kb; // 公開済みは降順、未公開は昇順
+    });
+  }
+  return arr;
 }
 
 /**
@@ -33,9 +76,12 @@ export class SupabaseDataProvider implements DataProvider {
 
     let q = this.db
       .from("works")
-      .select("id, title, title_kana, key_visual_url, poster_url, season_year, season_name, status, media, popularity, work_genres(genres(name))", {
+      .select("id, title, title_kana, key_visual_url, poster_url, season_year, season_name, status, media, popularity, created_at, work_genres(genres(name))", {
         count: "exact",
       });
+
+    // 非作品（PV/CM/プロモ/音楽/ピッコマ等）をサイト全体で除外
+    q = q.or(NON_WORK_OR_FILTER);
 
     // media が null の作品も除外されないよう「movie以外 or null」で映画を除く
     const notMovie = "media.neq.movie,media.is.null";
@@ -57,7 +103,8 @@ export class SupabaseDataProvider implements DataProvider {
     const perPage = query.perPage ?? 24;
     const page = query.page ?? 1;
     const from = (page - 1) * perPage;
-    // 人気順（Annictウォッチャー数の降順）。同数はタイトル読みで安定化。
+    // DB側の既定順は人気順（Annictウォッチャー数の降順）。同数はタイトル読みで安定化。
+    // 映画タブの「新着順/公開予定が近い順/タイトル順」はクール時系列を含むため取得後にJSで並べ替える。
     q = q
       .range(from, from + perPage - 1)
       .order("popularity", { ascending: false })
@@ -66,7 +113,8 @@ export class SupabaseDataProvider implements DataProvider {
     const { data, error, count } = await q;
     if (error) throw error;
 
-    const items: WorkSummary[] = (data ?? []).map((row: any) => ({
+    const rows = sortWorkRows(data ?? [], query.sort);
+    const items: WorkSummary[] = rows.map((row: any) => ({
       id: row.id,
       title: row.title,
       titleKana: row.title_kana,
@@ -202,6 +250,7 @@ export class SupabaseDataProvider implements DataProvider {
     const byWork = new Map<string, any>();
     for (const p of data ?? []) {
       if ((p as any).works.media === "movie") continue;
+      if (isNonWork((p as any).works)) continue;
       if (!channelMatches((p as any).channels?.name ?? null, channels)) continue;
       const id = (p as any).works.id;
       const cur = byWork.get(id);
@@ -248,6 +297,7 @@ export class SupabaseDataProvider implements DataProvider {
     const rankByWork = new Map<string, number>();
     for (const p of (data ?? []) as any[]) {
       if (p.works.media === "movie") continue;
+      if (isNonWork(p.works)) continue;
       // ネット配信・対象外ローカル局は「この後の放送」に出さない
       if (!channelMatches(p.channels?.name ?? null, channels)) continue;
       const id = p.works.id as string;

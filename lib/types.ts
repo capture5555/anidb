@@ -111,6 +111,9 @@ export interface Subscription {
 
 export type ListTab = "this_season" | "next_season" | "movie";
 
+/** 映画タブの並び替え種別。 */
+export type MovieSort = "popular" | "newest" | "upcoming" | "kana";
+
 export interface WorkQuery {
   tab?: ListTab;
   season?: string; // "2026-spring"
@@ -119,6 +122,8 @@ export interface WorkQuery {
   q?: string;
   page?: number;
   perPage?: number;
+  /** 並び替え（主に映画タブで使用。未指定は人気順）。 */
+  sort?: MovieSort;
 }
 
 export interface WorkListResult {

@@ -7,9 +7,10 @@ import type {
   WorkQuery,
   WorkSummary,
 } from "../types.ts";
-import { nextSeason, seasonOf, seasonSlug } from "../season.ts";
+import { nextSeason, seasonOf, seasonSlug, SEASON_ORDER } from "../season.ts";
 import { airSlot } from "../format.ts";
 import { channelMatches, channelRankBy } from "../channels.ts";
+import { isNonWork } from "../nonWork.ts";
 import type { ScheduleEntry } from "../types.ts";
 
 function toSummary(w: WorkDetail): WorkSummary {
@@ -33,7 +34,8 @@ export class SeedDataProvider implements DataProvider {
     const cur = seasonOf(now);
     const nxt = nextSeason(cur.year, cur.season);
 
-    let items = SEED_WORKS.slice();
+    // 非作品（PV/CM/プロモ/音楽/ピッコマ等）をサイト全体で除外
+    let items = SEED_WORKS.filter((w) => !isNonWork(w));
 
     if (query.tab) {
       switch (query.tab) {
@@ -70,13 +72,36 @@ export class SeedDataProvider implements DataProvider {
       );
     }
 
-    // 並び: 放送中 > 放送予定 > 終了、同status内はタイトル読み
-    const statusRank: Record<string, number> = { airing: 0, upcoming: 1, finished: 2 };
-    items.sort((a, b) => {
-      const r = (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9);
-      if (r !== 0) return r;
-      return (a.titleKana ?? a.title).localeCompare(b.titleKana ?? b.title, "ja");
-    });
+    if (query.sort && query.sort !== "popular") {
+      const seasonKey = (w: WorkDetail) =>
+        w.seasonYear && w.seasonName ? w.seasonYear * 10 + SEASON_ORDER.indexOf(w.seasonName) : null;
+      if (query.sort === "newest") {
+        // seed には created_at が無いため人気度の高い順を新着の代理とする
+        items.sort((a, b) => b.popularity - a.popularity);
+      } else if (query.sort === "kana") {
+        items.sort((a, b) => (a.titleKana ?? "～").localeCompare(b.titleKana ?? "～", "ja"));
+      } else if (query.sort === "upcoming") {
+        const rank = (w: WorkDetail) => (w.status === "finished" ? 1 : 0);
+        items.sort((a, b) => {
+          if (rank(a) !== rank(b)) return rank(a) - rank(b);
+          const ka = seasonKey(a);
+          const kb = seasonKey(b);
+          if (ka == null) return kb == null ? 0 : 1;
+          if (kb == null) return -1;
+          return rank(a) === 1 ? kb - ka : ka - kb;
+        });
+      }
+    } else if (query.sort === "popular") {
+      items.sort((a, b) => b.popularity - a.popularity);
+    } else {
+      // 既定: 放送中 > 放送予定 > 終了、同status内はタイトル読み
+      const statusRank: Record<string, number> = { airing: 0, upcoming: 1, finished: 2 };
+      items.sort((a, b) => {
+        const r = (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9);
+        if (r !== 0) return r;
+        return (a.titleKana ?? a.title).localeCompare(b.titleKana ?? b.title, "ja");
+      });
+    }
 
     const perPage = query.perPage ?? 24;
     const page = query.page ?? 1;
@@ -115,7 +140,7 @@ export class SeedDataProvider implements DataProvider {
     const now = Date.now();
     const entries: ScheduleEntry[] = [];
     for (const w of SEED_WORKS) {
-      if (w.status !== "airing" || w.media === "movie") continue;
+      if (w.status !== "airing" || w.media === "movie" || isNonWork(w)) continue;
       // 選択局（空なら配信以外の全放送波）で最も早い放送を代表に選ぶ。
       const next = w.programs
         .filter(
