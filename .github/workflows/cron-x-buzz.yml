@@ -9,6 +9,10 @@
 #   [Mode B] HERMES_HOME_B64
 #     = ローカルで `uvx --from hermes-agent hermes auth add xai-oauth` 後、
 #       `tar czf - -C ~ .hermes | base64 -w0` の出力を Secret に登録。
+#   [Mode B 任意] GH_SECRETS_PAT
+#     = Secrets:write 権限を持つ fine-grained PAT。設定すると実行ごとに更新後の
+#       ~/.hermes を HERMES_HOME_B64 へ自動で書き戻し、OAuth トークンの失効を防ぐ
+#       （未設定なら書き戻しはスキップし、従来どおり手動再認証が必要）。
 #   [Mode A] XAI_API_KEY（有料APIキー。空でも可） もしくは XAI_REFRESH_TOKEN + XAI_OAUTH_CLIENT_ID
 #     ※ XAI_REFRESH_TOKEN はローカルで `npm run xai-login` を実行して取得する。
 name: cron-x-buzz
@@ -64,3 +68,25 @@ jobs:
           # ~15作品 + ~10話数 ≈ 25クエリ/回（3hごと。サブスク枠~30/2h以内に収まる）。
           X_BUZZ_LIMIT: "15"
           X_EPISODE_BUZZ_LIMIT: "10"
+
+      # 実行中に hermes-agent が更新（ローテーション）した OAuth トークンを Secret へ
+      # 書き戻し、次回以降の失効を防ぐ。GH_SECRETS_PAT(Secrets:write) が無ければ静かにスキップ。
+      # always(): 一部クエリが失敗しても、リフレッシュ済みの新トークンは捕捉したいので常に実行。
+      - name: Persist refreshed Hermes credentials (Mode B)
+        if: ${{ always() && env.HERMES_X_ENABLED == '1' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_PAT }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "GH_SECRETS_PAT 未設定のため書き戻しをスキップ（手動再認証が必要なモード）"
+            exit 0
+          fi
+          if [ ! -d "$HOME/.hermes" ]; then
+            echo "~/.hermes が無いためスキップ"
+            exit 0
+          fi
+          tar czf - -C ~ .hermes | base64 -w0 \
+            | gh secret set HERMES_HOME_B64 --repo "$GH_REPO"
+          echo "HERMES_HOME_B64 を更新後の認証情報で書き戻しました"
