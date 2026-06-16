@@ -1,0 +1,9 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="アニメ作品データベース">
+  <rect width="64" height="64" rx="14" fill="#171e30"/>
+  <!-- 分析バー（ランキング/視聴分析を象徴）。最高バーをアクセント色に。 -->
+  <rect x="15" y="34" width="10" height="16" rx="3" fill="#eef1f6"/>
+  <rect x="29" y="26" width="10" height="24" rx="3" fill="#eef1f6"/>
+  <rect x="43" y="15" width="10" height="35" rx="3" fill="#e8482f"/>
+  <!-- ベースライン -->
+  <rect x="14" y="50" width="40" height="2.5" rx="1.25" fill="#2f6fdb"/>
+</svg>
