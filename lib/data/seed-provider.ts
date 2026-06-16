@@ -11,6 +11,7 @@ import { nextSeason, seasonOf, seasonSlug, SEASON_ORDER } from "../season.ts";
 import { airSlot } from "../format.ts";
 import { channelMatches, channelRankBy } from "../channels.ts";
 import { isNonWork, isExcludedListMedia, mediaAllowedInList } from "../nonWork.ts";
+import { movieScreeningStatus, movieReleaseTime } from "../movie.ts";
 import type { ScheduleEntry } from "../types.ts";
 
 function toSummary(w: WorkDetail): WorkSummary {
@@ -54,8 +55,19 @@ export class SeedDataProvider implements DataProvider {
             (w) => w.seasonYear === nxt.year && w.seasonName === nxt.season && w.media !== "movie",
           );
           break;
-        case "movie":
-          items = items.filter((w) => w.media === "movie");
+        case "movie_now":
+          items = items.filter(
+            (w) => w.media === "movie" && movieScreeningStatus(w).kind === "now",
+          );
+          items.sort((a, b) => (movieReleaseTime(b) ?? 0) - (movieReleaseTime(a) ?? 0));
+          break;
+        case "movie_upcoming":
+          items = items.filter((w) => {
+            if (w.media !== "movie") return false;
+            const k = movieScreeningStatus(w).kind;
+            return k === "soon" || k === "scheduled";
+          });
+          items.sort((a, b) => (movieReleaseTime(a) ?? Infinity) - (movieReleaseTime(b) ?? Infinity));
           break;
       }
     }
