@@ -37,6 +37,12 @@ export function hasExactReleaseDate(w: MovieDateInput): boolean {
   return Boolean(w.releasedOn && /^\d{4}-\d{2}-\d{2}$/.test(w.releasedOn));
 }
 
+/** 公開日のソート用タイムスタンプ（JST基準）。判定材料が無ければ null。 */
+export function movieReleaseTime(w: MovieDateInput): number | null {
+  const d = movieReleaseDate(w);
+  return d ? new Date(`${d}T00:00:00+09:00`).getTime() : null;
+}
+
 export type ScreeningKind = "scheduled" | "soon" | "now" | "ended";
 
 /** 「近日上映開始」とみなす公開前の日数。 */

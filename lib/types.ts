@@ -113,7 +113,7 @@ export interface Subscription {
 
 // --- 一覧クエリ ---
 
-export type ListTab = "this_season" | "next_season" | "movie";
+export type ListTab = "this_season" | "next_season" | "movie_now" | "movie_upcoming";
 
 /** 映画タブの並び替え種別。 */
 export type MovieSort = "popular" | "newest" | "upcoming" | "kana";

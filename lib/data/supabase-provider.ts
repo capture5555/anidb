@@ -16,6 +16,7 @@ import {
   isExcludedListMedia,
   mediaAllowedInList,
 } from "../nonWork.ts";
+import { movieScreeningStatus, movieReleaseTime } from "../movie.ts";
 import { airSlot } from "../format.ts";
 import { channelMatches, channelRankBy } from "../channels.ts";
 import type { ScheduleEntry } from "../types.ts";
@@ -106,7 +107,8 @@ export class SupabaseDataProvider implements DataProvider {
         q = q.eq("season_year", cur.year).eq("season_name", cur.season).or(notMovie);
       } else if (query.tab === "next_season") {
         q = q.eq("season_year", nxt.year).eq("season_name", nxt.season).or(notMovie);
-      } else if (query.tab === "movie") {
+      } else if (query.tab === "movie_now" || query.tab === "movie_upcoming") {
+        // 公開中 / これから公開（上映ステータスの絞り込みは取得後にJSで実施）
         q = q.eq("media", "movie");
       }
 
@@ -161,10 +163,31 @@ export class SupabaseDataProvider implements DataProvider {
       genres: (row.work_genres ?? []).map((wg: any) => wg.genres?.name).filter(Boolean),
     }));
 
+    // 映画タブ: 上映ステータスで絞り、正確な公開日順に並べる。
+    //   公開中 = 公開日を過ぎて上映期間内 / これから公開 = 公開日が未来（近日含む）
+    let finalItems = items;
+    if (query.tab === "movie_now" || query.tab === "movie_upcoming") {
+      const wantNow = query.tab === "movie_now";
+      finalItems = items.filter((w) => {
+        const kind = movieScreeningStatus(w).kind;
+        return wantNow ? kind === "now" : kind === "soon" || kind === "scheduled";
+      });
+      finalItems.sort((a, b) => {
+        const ta = movieReleaseTime(a);
+        const tb = movieReleaseTime(b);
+        if (ta == null) return tb == null ? 0 : 1;
+        if (tb == null) return -1;
+        // 公開中: 最近公開が上（降順） / これから公開: 近い順（昇順）
+        return wantNow ? tb - ta : ta - tb;
+      });
+    }
+
     // 取得済みが全件（count <= perPage）なら除外後の実数で total を補正、そうでなければ近似。
+    const isMovieTab = query.tab === "movie_now" || query.tab === "movie_upcoming";
     const rawCount = count ?? items.length;
-    const total = rawCount <= perPage ? items.length : Math.max(0, rawCount - removed);
-    return { items, page, perPage, total, hasNext: from + perPage < total };
+    const total =
+      isMovieTab || rawCount <= perPage ? finalItems.length : Math.max(0, rawCount - removed);
+    return { items: finalItems, page, perPage, total, hasNext: from + perPage < total };
   }
 
   async getWork(id: string): Promise<WorkDetail | null> {
